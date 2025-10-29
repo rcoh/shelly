@@ -13,22 +13,21 @@ The test framework lets you iterate on handlers with confidence.
 
 ## Test Structure
 
-Tests live in `.shelly/tests/<handler-name>/` with paired input/output files:
+Tests live in `.shelly/tests/<handler-name>/` as individual TOML files:
 
 ```
 .shelly/tests/
 └── cargo/
-    ├── input-build-error.toml      # What the handler receives
-    ├── output-build-error.toml     # What it should produce
-    ├── input-build-success.toml
-    └── output-build-success.toml
+    ├── build-error.toml
+    ├── build-success.toml
+    └── build-with-warnings.toml
 ```
+
+Each file contains both the input and expected output.
 
 ## Test Format
 
-### Input File (`input-<name>.toml`)
-
-Simulates what the handler receives after command execution:
+Each test is a single TOML file with the command input and expected summary:
 
 ```toml
 command = "cargo build"
@@ -44,6 +43,10 @@ error[E0425]: cannot find value `y` in this scope
 
 error: aborting due to previous error
 """
+expected_summary = """
+   Compiling myproject v0.1.0
+error[E0425]: cannot find value `y` in this scope
+error: aborting due to previous error"""
 
 [settings]
 ```
@@ -53,18 +56,8 @@ error: aborting due to previous error
 - `exit_code`: Exit code (0 = success)
 - `stdout`: Standard output (use `"""` for multiline)
 - `stderr`: Standard error (use `"""` for multiline)
+- `expected_summary`: What the handler should produce
 - `settings`: Handler settings table (e.g., `settings.show_warnings = true`)
-
-### Output File (`output-<name>.toml`)
-
-The expected summary after handler processing:
-
-```toml
-summary = """
-   Compiling myproject v0.1.0
-error[E0425]: cannot find value `y` in this scope
-error: aborting due to previous error"""
-```
 
 **Note**: TOML multiline strings preserve formatting. Don't add trailing newlines unless the handler output includes them.
 
@@ -98,7 +91,7 @@ Run the command and save its output:
 cargo build 2> error.txt
 ```
 
-### 2. Create Input File
+### 2. Create Test File
 
 ```toml
 command = "cargo build"
@@ -107,25 +100,16 @@ stdout = ""
 stderr = """
 <paste error.txt contents>
 """
+expected_summary = """
+<what the handler should produce>
+"""
 
 [settings]
 ```
 
-Save as `.shelly/tests/cargo/input-my-test.toml`
+Save as `.shelly/tests/cargo/my-test.toml`
 
-### 3. Create Expected Output
-
-Manually write what the handler *should* produce:
-
-```toml
-summary = """
-error[E0425]: cannot find value `y` in this scope
- --> src/main.rs:3:13"""
-```
-
-Save as `.shelly/tests/cargo/output-my-test.toml`
-
-### 4. Run Tests
+### 3. Run Tests
 
 ```bash
 cargo test
@@ -154,7 +138,7 @@ This will run the handler and save its output as the expected result.
 4. Fix handler to preserve line numbers
 5. Run test - it passes!
 
-See `cargo/input-build-error.toml` for a complete example.
+See `cargo/build-error.toml` for a complete example.
 
 ## Tips
 

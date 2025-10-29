@@ -178,8 +178,8 @@ mod tests {
         
         // Run all tests
         let handler_path = std::path::PathBuf::from("handlers/cargo.ts");
-        for test in &tests {
-            let result = testing::run_test(&handler_path, test).await.unwrap();
+        for (name, test) in &tests {
+            let result = testing::run_test(&handler_path, name, test).await.unwrap();
             assert!(result.passed, "Test {} failed:\nExpected: {}\nActual: {}", 
                     result.name, result.expected, result.actual);
         }

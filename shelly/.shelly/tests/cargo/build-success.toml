@@ -5,5 +5,6 @@ stderr = """
    Compiling myproject v0.1.0
     Finished dev [unoptimized + debuginfo] target(s) in 0.50s
 """
+expected_summary = "Build succeeded"
 
 [settings]
