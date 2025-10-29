@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 pub mod executor;
 pub mod handler;
@@ -7,12 +8,28 @@ pub mod output;
 pub mod runtime;
 pub mod testing;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecuteRequest {
+    pub command: String,
+    pub settings: HashMap<String, serde_json::Value>,
+    pub exact: bool,
+    pub working_dir: PathBuf,
+    pub env: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutedCommand {
+    pub command: String,
+    pub env: HashMap<String, String>,
+    pub working_dir: PathBuf,
+}
+
 /// Execute a command with optional handler processing
-pub async fn execute_command(
-    command: &str,
-    settings: HashMap<String, serde_json::Value>,
-    exact: bool,
-) -> anyhow::Result<ExecutionResult> {
+pub async fn execute_command(request: ExecuteRequest) -> anyhow::Result<ExecutionResult> {
+    let command = &request.command;
+    let settings = &request.settings;
+    let exact = request.exact;
+    
     // Clean up old output files
     let _ = output::cleanup_old_files();
 
@@ -20,7 +37,7 @@ pub async fn execute_command(
     let output_file = output::create_output_file(command)?;
 
     // Find and load handler (if not exact mode)
-    let (final_command, env) = if exact {
+    let (final_command, handler_env) = if exact {
         (command.to_string(), HashMap::new())
     } else if let Some(handler_path) = handler::find_handler(command)? {
         let mut rt = runtime::HandlerRuntime::new()?;
@@ -36,11 +53,16 @@ pub async fn execute_command(
     } else {
         (command.to_string(), HashMap::new())
     };
+    
+    // Merge env vars: start with agent's, then handler's (handler wins)
+    let mut final_env = request.env.clone();
+    final_env.extend(handler_env);
 
     // Execute command
     let exec_result = executor::execute(executor::ExecutorConfig {
-        command: final_command,
-        env,
+        command: final_command.clone(),
+        env: final_env.clone(),
+        working_dir: request.working_dir.clone(),
     })
     .await?;
 
@@ -97,6 +119,11 @@ pub async fn execute_command(
         output_file: output_file.to_string_lossy().to_string(),
         exit_code: exec_result.exit_code,
         truncated,
+        executed_command: ExecutedCommand {
+            command: final_command,
+            env: final_env,
+            working_dir: request.working_dir,
+        },
     })
 }
 
@@ -110,6 +137,8 @@ pub struct ExecutionResult {
     pub exit_code: i32,
     /// Whether output was truncated
     pub truncated: bool,
+    /// The actual command that was executed
+    pub executed_command: ExecutedCommand,
 }
 
 #[cfg(test)]
@@ -160,24 +189,31 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_command_with_handler() {
-        let settings = HashMap::new();
+        let request = ExecuteRequest {
+            command: "cargo --version".to_string(),
+            settings: HashMap::new(),
+            exact: false,
+            working_dir: std::env::current_dir().unwrap(),
+            env: HashMap::new(),
+        };
 
-        // Test with cargo (should add --quiet and filter output)
-        let result = execute_command("cargo --version", settings, false)
-            .await
-            .unwrap();
+        let result = execute_command(request).await.unwrap();
         assert_eq!(result.exit_code, 0);
         assert!(!result.output_file.is_empty());
-        // Handler filters output, so we get "Build succeeded" for successful commands
         assert!(!result.summary.is_empty());
     }
 
     #[tokio::test]
     async fn test_execute_command_exact_mode() {
-        let settings = HashMap::new();
+        let request = ExecuteRequest {
+            command: "echo hello".to_string(),
+            settings: HashMap::new(),
+            exact: true,
+            working_dir: std::env::current_dir().unwrap(),
+            env: HashMap::new(),
+        };
 
-        // Test exact mode (no handler processing)
-        let result = execute_command("echo hello", settings, true).await.unwrap();
+        let result = execute_command(request).await.unwrap();
         assert_eq!(result.exit_code, 0);
         assert!(result.summary.contains("hello"));
     }

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -7,6 +8,7 @@ use anyhow::{Context, Result};
 pub struct ExecutorConfig {
     pub command: String,
     pub env: HashMap<String, String>,
+    pub working_dir: PathBuf,
 }
 
 pub struct ExecutorOutput {
@@ -24,6 +26,7 @@ pub async fn execute(config: ExecutorConfig) -> Result<ExecutorOutput> {
 
     let mut cmd = Command::new(program);
     cmd.args(args)
+        .current_dir(&config.working_dir)
         .envs(&config.env)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
