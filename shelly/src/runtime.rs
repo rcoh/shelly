@@ -88,6 +88,14 @@ pub struct PrepareResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SummaryResult {
     pub summary: Option<String>,
+    pub truncation: Option<TruncationInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TruncationInfo {
+    pub truncated: bool,
+    pub reason: Option<String>,
+    pub description: Option<String>,
 }
 
 enum RuntimeRequest {

@@ -52,9 +52,8 @@ pub async fn execute(config: ExecutorConfig) -> Result<ExecutorOutput> {
                 }
             }
             line = stderr_reader.next_line() => {
-                match line? {
-                    Some(l) => stderr_lines.push(l),
-                    None => {}
+                if let Some(l) = line? {
+                    stderr_lines.push(l);
                 }
             }
         }

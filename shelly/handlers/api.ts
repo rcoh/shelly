@@ -67,7 +67,19 @@ export interface SummaryResult {
    */
   summary: string | null;
   
-  // Future: Could add fields like shouldKill, priority, etc.
+  /**
+   * Optional truncation metadata to help agents understand what was filtered.
+   */
+  truncation?: TruncationInfo;
+}
+
+export interface TruncationInfo {
+  /** Whether content was truncated/filtered */
+  truncated: boolean;
+  /** Reason for truncation */
+  reason?: "filtered_noise" | "content_too_large" | "filtered_duplicates";
+  /** Human-readable description of what was removed */
+  description?: string;
 }
 
 export interface SettingsSchema {

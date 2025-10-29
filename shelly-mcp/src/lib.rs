@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rmcp::{
     handler::server::{tool::ToolRouter, wrapper::Parameters},
-    model::{CallToolResult, ServerCapabilities, ServerInfo},
+    model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
     tool, tool_handler, tool_router, ErrorData, ServerHandler,
 };
 use schemars::JsonSchema;
@@ -33,7 +33,7 @@ struct ExecuteCliArgs {
     timeout_ms: u64,
 
     /// Run the _exact_ command specified by the user
-    exact: bool,
+    disable_enhancements: bool,
 }
 
 impl ShellyMcp {
@@ -49,36 +49,39 @@ impl ShellyMcp {
     /// Execute a CLI command with smart filtering.
     #[tool(
         name = "execute_cli",
-        description = "Execute a CLI command with smart handling for pagers and verbose output. Always provide working_dir. Always show users the precise output. Do not summarize it."
+        description = "Execute a CLI command. Shelly will remove noise from the command, both by filtering, and by using the best flags to show the most important information. Always provide working_dir."
     )]
     async fn execute_cli(
         &self,
         params: Parameters<ExecuteCliArgs>,
     ) -> Result<CallToolResult, ErrorData> {
         let params = params.0;
-        
+
         // Combine command and args properly
         let full_command = if params.args.is_empty() {
             params.command
         } else {
             format!("{} {}", params.command, params.args.join(" "))
         };
-        
+
         let request = shelly::ExecuteRequest {
             command: full_command,
             settings: HashMap::new(),
-            exact: params.exact,
+            exact: params.disable_enhancements,
             working_dir: params.working_dir.into(),
             env: params.env,
         };
-        
+
         let result = shelly::execute_command(request).await;
-        match result {
-            Ok(result) => Ok(CallToolResult::structured(
-                serde_json::to_value(result).unwrap(),
-            )),
-            Err(_) => todo!(),
-        }
+        Ok(match result {
+            Ok(result) => CallToolResult {
+                content: vec![Content::text("command executed (status: {})")],
+                structured_content: Some(serde_json::to_value(&result).unwrap()),
+                is_error: None,
+                meta: None,
+            },
+            Err(err) => CallToolResult::error(vec![Content::text(err.to_string())]),
+        })
     }
 }
 
@@ -104,19 +107,23 @@ mod tests {
     #[tokio::test]
     async fn test_execute_cli_combines_command_and_args() {
         let server = ShellyMcp::new();
-        
+
         let params = Parameters(ExecuteCliArgs {
             command: "git".to_string(),
-            args: vec!["commit".to_string(), "-m".to_string(), "test message".to_string()],
+            args: vec![
+                "commit".to_string(),
+                "-m".to_string(),
+                "test message".to_string(),
+            ],
             working_dir: "/tmp".to_string(),
             env: HashMap::new(),
             timeout_ms: 5000,
-            exact: true,
+            disable_enhancements: true,
         });
 
         // This should not panic and should properly combine the command
         let result = server.execute_cli(params).await;
-        
+
         // We expect this to fail (since we're not in a git repo), but it should
         // fail with a git error, not a command parsing error
         assert!(result.is_ok()); // The MCP call itself should succeed
@@ -125,14 +132,18 @@ mod tests {
     #[tokio::test]
     async fn test_git_commit_with_message() {
         let server = ShellyMcp::new();
-        
+
         let params = Parameters(ExecuteCliArgs {
             command: "git".to_string(),
-            args: vec!["commit".to_string(), "-m".to_string(), "Add comprehensive README".to_string()],
+            args: vec![
+                "commit".to_string(),
+                "-m".to_string(),
+                "Add comprehensive README".to_string(),
+            ],
             working_dir: "/tmp".to_string(),
             env: HashMap::new(),
             timeout_ms: 5000,
-            exact: true,
+            disable_enhancements: true,
         });
 
         // This should properly combine to "git commit -m Add comprehensive README"
@@ -143,14 +154,14 @@ mod tests {
     #[tokio::test]
     async fn test_execute_cli_handles_empty_args() {
         let server = ShellyMcp::new();
-        
+
         let params = Parameters(ExecuteCliArgs {
             command: "echo hello".to_string(),
             args: vec![],
             working_dir: "/tmp".to_string(),
             env: HashMap::new(),
             timeout_ms: 5000,
-            exact: true,
+            disable_enhancements: true,
         });
 
         let result = server.execute_cli(params).await;

@@ -29,7 +29,7 @@ pub async fn execute_command(request: ExecuteRequest) -> anyhow::Result<Executio
     let command = &request.command;
     let settings = &request.settings;
     let exact = request.exact;
-    
+
     // Clean up old output files
     let _ = output::cleanup_old_files();
 
@@ -53,7 +53,7 @@ pub async fn execute_command(request: ExecuteRequest) -> anyhow::Result<Executio
     } else {
         (command.to_string(), HashMap::new())
     };
-    
+
     // Merge env vars: start with agent's, then handler's (handler wins)
     let mut final_env = request.env.clone();
     final_env.extend(handler_env);
@@ -75,8 +75,11 @@ pub async fn execute_command(request: ExecuteRequest) -> anyhow::Result<Executio
     )?;
 
     // Get summary (either from handler or raw output)
-    let summary = if exact {
-        format!("{}\n{}", exec_result.stdout, exec_result.stderr)
+    let (summary, handler_truncation) = if exact {
+        (
+            format!("{}\n{}", exec_result.stdout, exec_result.stderr),
+            None,
+        )
     } else if let Some(handler_path) = handler::find_handler(command)? {
         let mut rt = runtime::HandlerRuntime::new()?;
         rt.load_handler(handler_path.to_str().unwrap()).await?;
@@ -91,34 +94,59 @@ pub async fn execute_command(request: ExecuteRequest) -> anyhow::Result<Executio
                     Some(exec_result.exit_code),
                 )
                 .await?;
-            result.summary.unwrap_or_else(|| "No output".to_string())
+            (
+                result.summary.unwrap_or_else(|| "No output".to_string()),
+                result.truncation,
+            )
         } else {
-            format!("{}\n{}", exec_result.stdout, exec_result.stderr)
+            (
+                format!("{}\n{}", exec_result.stdout, exec_result.stderr),
+                None,
+            )
         }
     } else {
-        format!("{}\n{}", exec_result.stdout, exec_result.stderr)
+        (
+            format!("{}\n{}", exec_result.stdout, exec_result.stderr),
+            None,
+        )
     };
 
-    // Truncate summary to ~500 tokens (rough estimate: 4 chars per token)
-    const MAX_CHARS: usize = 2000;
-    let (truncated_summary, truncated) = if summary.len() > MAX_CHARS {
-        (
-            format!(
-                "{}...\n\n[Output truncated. See full output in {}]",
-                &summary[..MAX_CHARS],
-                output_file.display()
-            ),
-            true,
-        )
-    } else {
-        (summary, false)
-    };
+    // Apply length-based truncation if needed and no handler truncation occurred
+    const MAX_CHARS: usize = 10000;
+    let (final_summary, truncated, truncation_reason) =
+        if let Some(handler_trunc) = handler_truncation {
+            // Handler provided truncation info
+            let truncation_note = if let Some(desc) = &handler_trunc.description {
+                format!("\n\n[{}]", desc)
+            } else {
+                String::new()
+            };
+            (
+                format!("{}{}", summary, truncation_note),
+                handler_trunc.truncated,
+                handler_trunc.reason,
+            )
+        } else if summary.len() > MAX_CHARS {
+            // Fallback to length-based truncation
+            (
+                format!(
+                    "{}...\n\n[Output truncated due to length. See full output in {}]",
+                    &summary[..MAX_CHARS],
+                    output_file.display()
+                ),
+                true,
+                Some("content_too_large".to_string()),
+            )
+        } else {
+            (summary, false, None)
+        };
 
     Ok(ExecutionResult {
-        summary: truncated_summary,
+        summary: final_summary,
         output_file: output_file.to_string_lossy().to_string(),
         exit_code: exec_result.exit_code,
         truncated,
+        truncation_reason,
         executed_command: ExecutedCommand {
             command: final_command,
             env: final_env,
@@ -137,6 +165,8 @@ pub struct ExecutionResult {
     pub exit_code: i32,
     /// Whether output was truncated
     pub truncated: bool,
+    /// Reason for truncation (if any)
+    pub truncation_reason: Option<String>,
     /// The actual command that was executed
     pub executed_command: ExecutedCommand,
 }

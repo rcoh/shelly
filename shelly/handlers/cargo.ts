@@ -52,6 +52,7 @@ class CargoHandler implements Handler {
     const filtered: string[] = [];
     let inErrorBlock = false;
     let inWarningBlock = false;
+    let filteredWarnings = 0;
     
     for (const line of lines) {
       // Detect start of error block
@@ -68,6 +69,8 @@ class CargoHandler implements Handler {
         inErrorBlock = false;
         if (showWarnings) {
           filtered.push(line);
+        } else {
+          filteredWarnings++;
         }
         continue;
       }
@@ -104,7 +107,14 @@ class CargoHandler implements Handler {
       ? filtered.join("\n")
       : "Build failed";
 
-    return { summary };
+    // Add truncation info if we filtered warnings
+    const truncation = filteredWarnings > 0 ? {
+      truncated: true,
+      reason: "filtered_noise" as const,
+      description: `Filtered ${filteredWarnings} warning(s) - use show_warnings: true to include them`
+    } : undefined;
+
+    return { summary, truncation };
   }
 }
 

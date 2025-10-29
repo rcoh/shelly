@@ -25,7 +25,7 @@ pub fn find_tests(handler_name: &str) -> Result<Vec<(String, TestCase)>> {
         let entry = entry?;
         let path = entry.path();
         
-        if path.is_file() && path.extension().map_or(false, |e| e == "toml") {
+        if path.is_file() && path.extension().is_some_and(|e| e == "toml") {
             let name = path.file_stem().unwrap().to_string_lossy().to_string();
             let test: TestCase = toml::from_str(&std::fs::read_to_string(&path)?)?;
             tests.push((name, test));
