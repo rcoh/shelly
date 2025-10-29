@@ -7,6 +7,7 @@ use deno_core::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::rc::Rc;
+use tokio::sync::{mpsc, oneshot};
 
 struct TsModuleLoader;
 
@@ -89,30 +90,49 @@ pub struct SummaryResult {
     pub summary: Option<String>,
 }
 
-pub struct HandlerRuntime {
-    runtime: JsRuntime,
-    handler_name: String,
+enum RuntimeRequest {
+    LoadHandler {
+        path: String,
+        response: oneshot::Sender<Result<()>>,
+    },
+    Matches {
+        command: String,
+        response: oneshot::Sender<Result<bool>>,
+    },
+    CreateHandler {
+        command: String,
+        settings: HashMap<String, serde_json::Value>,
+        response: oneshot::Sender<Result<()>>,
+    },
+    Prepare {
+        response: oneshot::Sender<Result<PrepareResult>>,
+    },
+    Summarize {
+        stdout: String,
+        stderr: String,
+        exit_code: Option<i32>,
+        response: oneshot::Sender<Result<SummaryResult>>,
+    },
 }
 
-impl HandlerRuntime {
-    pub fn new() -> Result<Self> {
-        let runtime = JsRuntime::new(RuntimeOptions {
+struct HandlerRuntimeInner {
+    js_runtime: JsRuntime,
+}
+
+impl HandlerRuntimeInner {
+    fn new() -> Self {
+        let js_runtime = JsRuntime::new(RuntimeOptions {
             module_loader: Some(Rc::new(TsModuleLoader)),
             ..Default::default()
         });
-        Ok(Self { 
-            runtime,
-            handler_name: String::new(),
-        })
+        Self { js_runtime }
     }
 
-    /// Load a handler from a file
-    pub async fn load_handler(&mut self, path: &str) -> Result<()> {
+    async fn load_handler(&mut self, path: &str) -> Result<()> {
         let resolved = std::fs::canonicalize(path)?;
         let specifier = ModuleSpecifier::from_file_path(&resolved)
             .map_err(|_| anyhow::anyhow!("Invalid path"))?;
 
-        // Create a wrapper module that imports and exposes the handler
         let wrapper_code = format!(
             r#"
             import {{ cargoHandler }} from "{}";
@@ -120,28 +140,28 @@ impl HandlerRuntime {
             "#,
             specifier
         );
-        
+
         let wrapper_spec = ModuleSpecifier::parse("file:///wrapper.js")?;
-        let module_id = self.runtime.load_side_es_module_from_code(&wrapper_spec, wrapper_code).await?;
-        let result = self.runtime.mod_evaluate(module_id);
-        self.runtime.run_event_loop(Default::default()).await?;
+        let module_id = self
+            .js_runtime
+            .load_side_es_module_from_code(&wrapper_spec, wrapper_code)
+            .await?;
+        let result = self.js_runtime.mod_evaluate(module_id);
+        self.js_runtime.run_event_loop(Default::default()).await?;
         result.await?;
 
-        self.handler_name = "cargoHandler".to_string();
         Ok(())
     }
 
-    /// Check if handler matches a command
-    pub async fn matches(&mut self, command: &str) -> Result<bool> {
+    fn matches(&mut self, command: &str) -> Result<bool> {
         let code = format!("cargoHandler.matches({})", serde_json::to_string(command)?);
-        let result = self.runtime.execute_script("<matches>", code)?;
-        let scope = &mut self.runtime.handle_scope();
+        let result = self.js_runtime.execute_script("<matches>", code)?;
+        let scope = &mut self.js_runtime.handle_scope();
         let local = deno_core::v8::Local::new(scope, result);
         Ok(local.is_true())
     }
 
-    /// Create a handler instance
-    pub async fn create_handler(
+    fn create_handler(
         &mut self,
         command: &str,
         settings: &HashMap<String, serde_json::Value>,
@@ -151,22 +171,20 @@ impl HandlerRuntime {
             serde_json::to_string(command)?,
             serde_json::to_string(settings)?
         );
-        self.runtime.execute_script("<create>", code)?;
+        self.js_runtime.execute_script("<create>", code)?;
         Ok(())
     }
 
-    /// Call prepare on the handler
-    pub async fn prepare(&mut self) -> Result<PrepareResult> {
+    fn prepare(&mut self) -> Result<PrepareResult> {
         let code = "JSON.stringify(globalThis.__handler.prepare())";
-        let result = self.runtime.execute_script("<prepare>", code)?;
-        let scope = &mut self.runtime.handle_scope();
+        let result = self.js_runtime.execute_script("<prepare>", code)?;
+        let scope = &mut self.js_runtime.handle_scope();
         let local = deno_core::v8::Local::new(scope, result);
         let json_str = local.to_rust_string_lossy(scope);
         Ok(serde_json::from_str(&json_str)?)
     }
 
-    /// Call summarize on the handler
-    pub async fn summarize(
+    fn summarize(
         &mut self,
         stdout: &str,
         stderr: &str,
@@ -180,10 +198,118 @@ impl HandlerRuntime {
                 .map(|c| c.to_string())
                 .unwrap_or_else(|| "null".to_string())
         );
-        let result = self.runtime.execute_script("<summarize>", code)?;
-        let scope = &mut self.runtime.handle_scope();
+        let result = self.js_runtime.execute_script("<summarize>", code)?;
+        let scope = &mut self.js_runtime.handle_scope();
         let local = deno_core::v8::Local::new(scope, result);
         let json_str = local.to_rust_string_lossy(scope);
         Ok(serde_json::from_str(&json_str)?)
+    }
+
+    async fn run(mut self, mut rx: mpsc::UnboundedReceiver<RuntimeRequest>) {
+        while let Some(req) = rx.recv().await {
+            match req {
+                RuntimeRequest::LoadHandler { path, response } => {
+                    let result = self.load_handler(&path).await;
+                    let _ = response.send(result);
+                }
+                RuntimeRequest::Matches { command, response } => {
+                    let result = self.matches(&command);
+                    let _ = response.send(result);
+                }
+                RuntimeRequest::CreateHandler {
+                    command,
+                    settings,
+                    response,
+                } => {
+                    let result = self.create_handler(&command, &settings);
+                    let _ = response.send(result);
+                }
+                RuntimeRequest::Prepare { response } => {
+                    let result = self.prepare();
+                    let _ = response.send(result);
+                }
+                RuntimeRequest::Summarize {
+                    stdout,
+                    stderr,
+                    exit_code,
+                    response,
+                } => {
+                    let result = self.summarize(&stdout, &stderr, exit_code);
+                    let _ = response.send(result);
+                }
+            }
+        }
+    }
+}
+
+pub struct HandlerRuntime {
+    tx: mpsc::UnboundedSender<RuntimeRequest>,
+}
+
+impl HandlerRuntime {
+    pub fn new() -> Result<Self> {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let inner = HandlerRuntimeInner::new();
+            rt.block_on(inner.run(rx));
+        });
+
+        Ok(Self { tx })
+    }
+
+    pub async fn load_handler(&mut self, path: &str) -> Result<()> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(RuntimeRequest::LoadHandler {
+            path: path.to_string(),
+            response: tx,
+        })?;
+        rx.await?
+    }
+
+    pub async fn matches(&mut self, command: &str) -> Result<bool> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(RuntimeRequest::Matches {
+            command: command.to_string(),
+            response: tx,
+        })?;
+        rx.await?
+    }
+
+    pub async fn create_handler(
+        &mut self,
+        command: &str,
+        settings: &HashMap<String, serde_json::Value>,
+    ) -> Result<()> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(RuntimeRequest::CreateHandler {
+            command: command.to_string(),
+            settings: settings.clone(),
+            response: tx,
+        })?;
+        rx.await?
+    }
+
+    pub async fn prepare(&mut self) -> Result<PrepareResult> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(RuntimeRequest::Prepare { response: tx })?;
+        rx.await?
+    }
+
+    pub async fn summarize(
+        &mut self,
+        stdout: &str,
+        stderr: &str,
+        exit_code: Option<i32>,
+    ) -> Result<SummaryResult> {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(RuntimeRequest::Summarize {
+            stdout: stdout.to_string(),
+            stderr: stderr.to_string(),
+            exit_code,
+            response: tx,
+        })?;
+        rx.await?
     }
 }

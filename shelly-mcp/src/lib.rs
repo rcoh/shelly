@@ -56,9 +56,9 @@ impl ShellyMcp {
         params: Parameters<ExecuteCliArgs>,
     ) -> Result<CallToolResult, ErrorData> {
         let params = params.0;
-        // TODO: wire it up
         // TODO: add support for CWD
-        let result = shelly::execute_command(&params.command, settings, exact).await;
+        // TODO: add support for environment variables
+        let result = shelly::execute_command(&params.command, HashMap::new(), params.exact).await;
         match result {
             Ok(result) => Ok(CallToolResult::structured(
                 serde_json::to_value(result).unwrap(),
