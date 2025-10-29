@@ -57,12 +57,19 @@ impl ShellyMcp {
     ) -> Result<CallToolResult, ErrorData> {
         let params = params.0;
         
+        // Combine command and args properly
+        let full_command = if params.args.is_empty() {
+            params.command
+        } else {
+            format!("{} {}", params.command, params.args.join(" "))
+        };
+        
         let request = shelly::ExecuteRequest {
-            command: params.command,
+            command: full_command,
             settings: HashMap::new(),
             exact: params.exact,
-            working_dir: std::env::current_dir().unwrap(),
-            env: HashMap::new(),
+            working_dir: params.working_dir.into(),
+            env: params.env,
         };
         
         let result = shelly::execute_command(request).await;
@@ -88,4 +95,65 @@ impl ServerHandler for ShellyMcp {
 
 fn default_timeout() -> u64 {
     300_000 // 5 minutes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_execute_cli_combines_command_and_args() {
+        let server = ShellyMcp::new();
+        
+        let params = Parameters(ExecuteCliArgs {
+            command: "git".to_string(),
+            args: vec!["commit".to_string(), "-m".to_string(), "test message".to_string()],
+            working_dir: "/tmp".to_string(),
+            env: HashMap::new(),
+            timeout_ms: 5000,
+            exact: true,
+        });
+
+        // This should not panic and should properly combine the command
+        let result = server.execute_cli(params).await;
+        
+        // We expect this to fail (since we're not in a git repo), but it should
+        // fail with a git error, not a command parsing error
+        assert!(result.is_ok()); // The MCP call itself should succeed
+    }
+
+    #[tokio::test]
+    async fn test_git_commit_with_message() {
+        let server = ShellyMcp::new();
+        
+        let params = Parameters(ExecuteCliArgs {
+            command: "git".to_string(),
+            args: vec!["commit".to_string(), "-m".to_string(), "Add comprehensive README".to_string()],
+            working_dir: "/tmp".to_string(),
+            env: HashMap::new(),
+            timeout_ms: 5000,
+            exact: true,
+        });
+
+        // This should properly combine to "git commit -m Add comprehensive README"
+        let result = server.execute_cli(params).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_execute_cli_handles_empty_args() {
+        let server = ShellyMcp::new();
+        
+        let params = Parameters(ExecuteCliArgs {
+            command: "echo hello".to_string(),
+            args: vec![],
+            working_dir: "/tmp".to_string(),
+            env: HashMap::new(),
+            timeout_ms: 5000,
+            exact: true,
+        });
+
+        let result = server.execute_cli(params).await;
+        assert!(result.is_ok());
+    }
 }

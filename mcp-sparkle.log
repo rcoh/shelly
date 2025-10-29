@@ -3,3 +3,24 @@
 2025-10-29T14:06:56.304683Z  INFO sparkle_mcp::server: Initializing Sparkle AI Collaboration Identity MCP Server
 2025-10-29T14:06:56.306761Z  INFO rmcp::handler::server: client initialized
 2025-10-29T14:06:56.306819Z  INFO serve_inner: rmcp::service: Service initialized as server peer_info=Some(InitializeRequestParam { protocol_version: ProtocolVersion("2025-03-26"), capabilities: ClientCapabilities { experimental: None, roots: None, sampling: None, elicitation: None }, client_info: Implementation { name: "Q DEV CLI", title: None, version: "1.0.0", icons: None, website_url: None } })
+2025-10-29T16:29:24.664127Z  INFO serve_inner: rmcp::service: input stream terminated
+2025-10-29T16:29:24.664483Z  INFO serve_inner: rmcp::service: serve finished quit_reason=Closed
+2025-10-29T16:29:24.707158Z  INFO sparkle_mcp: 🔥 Starting Sparkle AI Collaboration Identity MCP Server
+2025-10-29T16:29:24.707446Z  INFO sparkle_mcp: Working directory: "/Users/rcoh/code/shelly"
+2025-10-29T16:29:24.707489Z  INFO sparkle_mcp::server: Initializing Sparkle AI Collaboration Identity MCP Server
+2025-10-29T16:29:24.709576Z  INFO rmcp::handler::server: client initialized
+2025-10-29T16:29:24.709630Z  INFO serve_inner: rmcp::service: Service initialized as server peer_info=Some(InitializeRequestParam { protocol_version: ProtocolVersion("2025-03-26"), capabilities: ClientCapabilities { experimental: None, roots: None, sampling: None, elicitation: None }, client_info: Implementation { name: "Q DEV CLI", title: None, version: "1.0.0", icons: None, website_url: None } })
+2025-10-29T16:29:37.002807Z  INFO serve_inner: rmcp::service: input stream terminated
+2025-10-29T16:29:37.002914Z  INFO serve_inner: rmcp::service: serve finished quit_reason=Closed
+2025-10-29T16:29:55.391206Z  INFO sparkle_mcp: 🔥 Starting Sparkle AI Collaboration Identity MCP Server
+2025-10-29T16:29:55.391791Z  INFO sparkle_mcp: Working directory: "/Users/rcoh/code/shelly"
+2025-10-29T16:29:55.391816Z  INFO sparkle_mcp::server: Initializing Sparkle AI Collaboration Identity MCP Server
+2025-10-29T16:29:55.392182Z  INFO rmcp::handler::server: client initialized
+2025-10-29T16:29:55.392230Z  INFO serve_inner: rmcp::service: Service initialized as server peer_info=Some(InitializeRequestParam { protocol_version: ProtocolVersion("2025-03-26"), capabilities: ClientCapabilities { experimental: None, roots: None, sampling: None, elicitation: None }, client_info: Implementation { name: "Q DEV CLI", title: None, version: "1.0.0", icons: None, website_url: None } })
+2025-10-29T16:31:37.723043Z  INFO serve_inner: rmcp::service: input stream terminated
+2025-10-29T16:31:37.723134Z  INFO serve_inner: rmcp::service: serve finished quit_reason=Closed
+2025-10-29T16:31:53.665987Z  INFO sparkle_mcp: 🔥 Starting Sparkle AI Collaboration Identity MCP Server
+2025-10-29T16:31:53.666327Z  INFO sparkle_mcp: Working directory: "/Users/rcoh/code/shelly"
+2025-10-29T16:31:53.666351Z  INFO sparkle_mcp::server: Initializing Sparkle AI Collaboration Identity MCP Server
+2025-10-29T16:31:53.666709Z  INFO rmcp::handler::server: client initialized
+2025-10-29T16:31:53.666750Z  INFO serve_inner: rmcp::service: Service initialized as server peer_info=Some(InitializeRequestParam { protocol_version: ProtocolVersion("2025-03-26"), capabilities: ClientCapabilities { experimental: None, roots: None, sampling: None, elicitation: None }, client_info: Implementation { name: "Q DEV CLI", title: None, version: "1.0.0", icons: None, website_url: None } })
