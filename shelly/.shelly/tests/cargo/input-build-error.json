@@ -1,7 +1,0 @@
-{
-  "command": "cargo build",
-  "settings": {},
-  "stdout": "",
-  "stderr": "   Compiling myproject v0.1.0\nerror[E0425]: cannot find value `y` in this scope\n --> src/main.rs:3:13\n  |\n3 |     println!(\"{}\", y);\n  |                    ^ not found in this scope\n\nerror: aborting due to previous error\n",
-  "exit_code": 1
-}

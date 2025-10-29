@@ -1,7 +1,0 @@
-{
-  "command": "cargo build",
-  "settings": {},
-  "stdout": "",
-  "stderr": "   Compiling myproject v0.1.0\n    Finished dev [unoptimized + debuginfo] target(s) in 0.50s\n",
-  "exit_code": 0
-}

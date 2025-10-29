@@ -35,15 +35,15 @@ pub fn find_tests(handler_name: &str) -> Result<Vec<TestCase>> {
         let entry = entry?;
         let path = entry.path();
         
-        if path.is_file() && path.extension().map_or(false, |e| e == "json") {
+        if path.is_file() && path.extension().map_or(false, |e| e == "toml") {
             let name = path.file_stem().unwrap().to_string_lossy();
             if name.starts_with("input-") {
                 let test_name = name.strip_prefix("input-").unwrap();
-                let output_path = test_dir.join(format!("output-{}.json", test_name));
+                let output_path = test_dir.join(format!("output-{}.toml", test_name));
                 
                 if output_path.exists() {
-                    let input: TestInput = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
-                    let expected: TestOutput = serde_json::from_str(&std::fs::read_to_string(&output_path)?)?;
+                    let input: TestInput = toml::from_str(&std::fs::read_to_string(&path)?)?;
+                    let expected: TestOutput = toml::from_str(&std::fs::read_to_string(&output_path)?)?;
                     
                     tests.push(TestCase {
                         name: test_name.to_string(),
@@ -112,11 +112,11 @@ pub async fn update_snapshot(handler_path: &Path, handler_name: &str, test: &Tes
     
     let output_path = PathBuf::from(".shelly/tests")
         .join(handler_name)
-        .join(format!("output-{}.json", test.name));
+        .join(format!("output-{}.toml", test.name));
     
     std::fs::write(
         output_path,
-        serde_json::to_string_pretty(&output)?,
+        toml::to_string_pretty(&output)?,
     )?;
     
     Ok(())

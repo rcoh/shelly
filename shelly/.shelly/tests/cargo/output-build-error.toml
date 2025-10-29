@@ -1,0 +1,4 @@
+summary = """
+   Compiling myproject v0.1.0
+error[E0425]: cannot find value `y` in this scope
+error: aborting due to previous error"""

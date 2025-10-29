@@ -18,44 +18,55 @@ Tests live in `.shelly/tests/<handler-name>/` with paired input/output files:
 ```
 .shelly/tests/
 └── cargo/
-    ├── input-build-error.json      # What the handler receives
-    ├── output-build-error.json     # What it should produce
-    ├── input-build-success.json
-    └── output-build-success.json
+    ├── input-build-error.toml      # What the handler receives
+    ├── output-build-error.toml     # What it should produce
+    ├── input-build-success.toml
+    └── output-build-success.toml
 ```
 
 ## Test Format
 
-### Input File (`input-<name>.json`)
+### Input File (`input-<name>.toml`)
 
 Simulates what the handler receives after command execution:
 
-```json
-{
-  "command": "cargo build",
-  "settings": {},
-  "stdout": "",
-  "stderr": "   Compiling myproject v0.1.0\nerror[E0425]: cannot find value `y` in this scope\n --> src/main.rs:3:13\n  |\n3 |     println!(\"{}\", y);\n  |                    ^ not found in this scope\n\nerror: aborting due to previous error\n",
-  "exit_code": 1
-}
+```toml
+command = "cargo build"
+exit_code = 1
+stdout = ""
+stderr = """
+   Compiling myproject v0.1.0
+error[E0425]: cannot find value `y` in this scope
+ --> src/main.rs:3:13
+  |
+3 |     println!("{}", y);
+  |                    ^ not found in this scope
+
+error: aborting due to previous error
+"""
+
+[settings]
 ```
 
 **Fields:**
 - `command`: The original command string
-- `settings`: Handler settings (e.g., `{"show_warnings": true}`)
-- `stdout`: Standard output from the command
-- `stderr`: Standard error from the command
 - `exit_code`: Exit code (0 = success)
+- `stdout`: Standard output (use `"""` for multiline)
+- `stderr`: Standard error (use `"""` for multiline)
+- `settings`: Handler settings table (e.g., `settings.show_warnings = true`)
 
-### Output File (`output-<name>.json`)
+### Output File (`output-<name>.toml`)
 
 The expected summary after handler processing:
 
-```json
-{
-  "summary": "   Compiling myproject v0.1.0\nerror[E0425]: cannot find value `y` in this scope\nerror: aborting due to previous error"
-}
+```toml
+summary = """
+   Compiling myproject v0.1.0
+error[E0425]: cannot find value `y` in this scope
+error: aborting due to previous error"""
 ```
+
+**Note**: TOML multiline strings preserve formatting. Don't add trailing newlines unless the handler output includes them.
 
 ## Running Tests
 
@@ -89,29 +100,30 @@ cargo build 2> error.txt
 
 ### 2. Create Input File
 
-```json
-{
-  "command": "cargo build",
-  "settings": {},
-  "stdout": "",
-  "stderr": "<paste error.txt contents>",
-  "exit_code": 1
-}
+```toml
+command = "cargo build"
+exit_code = 1
+stdout = ""
+stderr = """
+<paste error.txt contents>
+"""
+
+[settings]
 ```
 
-Save as `.shelly/tests/cargo/input-my-test.json`
+Save as `.shelly/tests/cargo/input-my-test.toml`
 
 ### 3. Create Expected Output
 
 Manually write what the handler *should* produce:
 
-```json
-{
-  "summary": "error[E0425]: cannot find value `y` in this scope\n --> src/main.rs:3:13"
-}
+```toml
+summary = """
+error[E0425]: cannot find value `y` in this scope
+ --> src/main.rs:3:13"""
 ```
 
-Save as `.shelly/tests/cargo/output-my-test.json`
+Save as `.shelly/tests/cargo/output-my-test.toml`
 
 ### 4. Run Tests
 
@@ -142,7 +154,7 @@ This will run the handler and save its output as the expected result.
 4. Fix handler to preserve line numbers
 5. Run test - it passes!
 
-See `cargo/input-build-error.json` for a complete example.
+See `cargo/input-build-error.toml` for a complete example.
 
 ## Tips
 
