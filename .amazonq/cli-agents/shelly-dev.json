@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/aws/amazon-q-developer-cli/refs/heads/main/schemas/agent-v1.json",
+  "name": "shelly-dev",
+  "description": "Shelly MCP server (dev mode) - smart command execution with output filtering",
+  "mcpServers": {
+    "shelly": {
+      "type": "stdio",
+      "command": "/Users/rcoh/code/shelly/shelly-dev.sh",
+      "args": [],
+      "env": {
+        "RUST_LOG": "debug"
+      },
+      "timeout": 120000,
+      "disabled": false
+    }
+  },
+  "tools": ["*"],
+  "allowedTools": ["@shelly/*"]
+}
