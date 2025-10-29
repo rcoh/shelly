@@ -12,8 +12,12 @@ error[E0425]: cannot find value `y` in this scope
 error: aborting due to previous error
 """
 expected_summary = """
-   Compiling myproject v0.1.0
 error[E0425]: cannot find value `y` in this scope
-error: aborting due to previous error"""
+ --> src/main.rs:3:13
+  |
+3 |     println!("{}", y);
+  |                    ^ not found in this scope
+error: aborting due to previous error
+"""
 
 [settings]

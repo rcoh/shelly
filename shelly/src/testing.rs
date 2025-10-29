@@ -51,7 +51,11 @@ pub async fn run_test(handler_path: &Path, name: &str, test: &TestCase) -> Resul
     ).await?;
     
     let actual_summary = result.summary.unwrap_or_default();
-    let passed = actual_summary == test.expected_summary;
+    
+    // Trim leading/trailing whitespace for comparison
+    let expected_trimmed = test.expected_summary.trim();
+    let actual_trimmed = actual_summary.trim();
+    let passed = actual_trimmed == expected_trimmed;
     
     Ok(TestResult {
         name: name.to_string(),

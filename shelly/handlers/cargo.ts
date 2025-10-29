@@ -42,44 +42,67 @@ class CargoHandler implements Handler {
 
     const showWarnings = this.settings.show_warnings ?? false;
     
-    // Filter stderr: keep errors, optionally keep warnings
+    // If successful, return simple message
+    if (exitCode === 0 && !this.stderr.includes("error")) {
+      return { summary: "Build succeeded" };
+    }
+    
+    // Filter stderr: keep error blocks, optionally keep warning blocks
     const lines = this.stderr.split("\n");
     const filtered: string[] = [];
-    let inWarning = false;
-    let hasErrors = this.stderr.includes("error");
+    let inErrorBlock = false;
+    let inWarningBlock = false;
     
     for (const line of lines) {
-      // Track if we're in a warning block
-      if (line.includes("warning:")) {
-        inWarning = true;
-        if (!showWarnings) continue;
-      } else if (line.includes("error")) {
-        inWarning = false;
-      } else if (line.trim() === "") {
-        inWarning = false;
-      }
-      
-      // Skip warning details unless showWarnings is true
-      if (inWarning && !showWarnings) {
+      // Detect start of error block
+      if (line.includes("error[E") || line.includes("error:")) {
+        inErrorBlock = true;
+        inWarningBlock = false;
+        filtered.push(line);
         continue;
       }
       
-      // Keep errors and aborting messages
-      if (line.includes("error") || line.includes("aborting")) {
-        filtered.push(line);
+      // Detect start of warning block
+      if (line.includes("warning:")) {
+        inWarningBlock = true;
+        inErrorBlock = false;
+        if (showWarnings) {
+          filtered.push(line);
+        }
+        continue;
       }
       
-      // Only keep compilation/finished lines if there are errors
-      if (hasErrors && (line.includes("Compiling") || line.includes("Finished"))) {
+      // End of block detection (empty line or new section)
+      if (line.trim() === "" || line.startsWith("For more information")) {
+        inErrorBlock = false;
+        inWarningBlock = false;
+        // Keep "For more information" lines only if they're about errors
+        if (line.startsWith("For more information") && !showWarnings) {
+          continue;
+        }
+      }
+      
+      // Keep all lines in error blocks (includes -->, |, ^, help, etc.)
+      if (inErrorBlock) {
+        filtered.push(line);
+        continue;
+      }
+      
+      // Keep warning block lines if showWarnings is true
+      if (inWarningBlock && showWarnings) {
+        filtered.push(line);
+        continue;
+      }
+      
+      // Keep final error summary lines
+      if (line.includes("could not compile") || line.includes("aborting due to")) {
         filtered.push(line);
       }
     }
 
     const summary = filtered.length > 0 
       ? filtered.join("\n")
-      : exitCode === 0 
-        ? "Build succeeded"
-        : "Build failed";
+      : "Build failed";
 
     return { summary };
   }

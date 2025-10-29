@@ -1,0 +1,24 @@
+command = "cargo build"
+exit_code = 101
+stdout = ""
+stderr = """
+   Compiling test_errors v0.1.0 (/private/tmp/test_errors)
+error[E0425]: cannot find value `y` in this scope
+ --> src/main.rs:3:20
+  |
+3 |     println!("{}", y);
+  |                    ^ help: a local variable with a similar name exists: `x`
+
+For more information about this error, try `rustc --explain E0425`.
+error: could not compile `test_errors` (bin "test_errors") due to 1 previous error
+"""
+expected_summary = """
+error[E0425]: cannot find value `y` in this scope
+ --> src/main.rs:3:20
+  |
+3 |     println!("{}", y);
+  |                    ^ help: a local variable with a similar name exists: `x`
+error: could not compile `test_errors` (bin "test_errors") due to 1 previous error
+"""
+
+[settings]
