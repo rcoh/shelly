@@ -5,6 +5,7 @@ pub mod executor;
 pub mod output;
 pub mod runtime;
 pub mod handler;
+pub mod testing;
 
 /// Execute a command with optional handler processing
 pub async fn execute_command(
@@ -167,5 +168,20 @@ mod tests {
         let result = execute_command("echo hello", settings, true).await.unwrap();
         assert_eq!(result.exit_code, 0);
         assert!(result.summary.contains("hello"));
+    }
+
+    #[tokio::test]
+    async fn test_handler_test_framework() {
+        // Find tests for cargo handler
+        let tests = testing::find_tests("cargo").unwrap();
+        assert!(!tests.is_empty(), "Should find cargo tests");
+        
+        // Run all tests
+        let handler_path = std::path::PathBuf::from("handlers/cargo.ts");
+        for test in &tests {
+            let result = testing::run_test(&handler_path, test).await.unwrap();
+            assert!(result.passed, "Test {} failed:\nExpected: {}\nActual: {}", 
+                    result.name, result.expected, result.actual);
+        }
     }
 }

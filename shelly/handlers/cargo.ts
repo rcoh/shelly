@@ -46,6 +46,7 @@ class CargoHandler implements Handler {
     const lines = this.stderr.split("\n");
     const filtered: string[] = [];
     let inWarning = false;
+    let hasErrors = this.stderr.includes("error");
     
     for (const line of lines) {
       // Track if we're in a warning block
@@ -63,9 +64,13 @@ class CargoHandler implements Handler {
         continue;
       }
       
-      // Keep errors and summary lines
-      if (line.includes("error") || line.includes("Compiling") || 
-          line.includes("Finished") || line.includes("aborting")) {
+      // Keep errors and aborting messages
+      if (line.includes("error") || line.includes("aborting")) {
+        filtered.push(line);
+      }
+      
+      // Only keep compilation/finished lines if there are errors
+      if (hasErrors && (line.includes("Compiling") || line.includes("Finished"))) {
         filtered.push(line);
       }
     }
