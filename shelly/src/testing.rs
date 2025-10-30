@@ -14,14 +14,30 @@ pub struct TestCase {
 }
 
 /// Find all test cases for a handler
+/// Searches .shelly/tests/ in CWD first, then falls back to built-in tests
 pub fn find_tests(handler_name: &str) -> Result<Vec<(String, TestCase)>> {
-    let test_dir = PathBuf::from(".shelly/tests").join(handler_name);
-    if !test_dir.exists() {
-        return Ok(Vec::new());
+    let mut tests = Vec::new();
+
+    // Check .shelly/tests/ in current directory first
+    let local_test_dir = PathBuf::from(".shelly/tests").join(handler_name);
+    if local_test_dir.exists() {
+        load_tests_from_dir(&local_test_dir, &mut tests)?;
     }
 
-    let mut tests = Vec::new();
-    for entry in std::fs::read_dir(&test_dir)? {
+    // Check built-in tests if no local tests found
+    if tests.is_empty() {
+        let builtin_test_dir = PathBuf::from("tests").join(handler_name);
+        if builtin_test_dir.exists() {
+            load_tests_from_dir(&builtin_test_dir, &mut tests)?;
+        }
+    }
+
+    tests.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(tests)
+}
+
+fn load_tests_from_dir(test_dir: &Path, tests: &mut Vec<(String, TestCase)>) -> Result<()> {
+    for entry in std::fs::read_dir(test_dir)? {
         let entry = entry?;
         let path = entry.path();
 
@@ -31,9 +47,7 @@ pub fn find_tests(handler_name: &str) -> Result<Vec<(String, TestCase)>> {
             tests.push((name, test));
         }
     }
-
-    tests.sort_by(|a, b| a.0.cmp(&b.0));
-    Ok(tests)
+    Ok(())
 }
 
 /// Run a single test case
@@ -93,6 +107,11 @@ pub async fn update_snapshot(
     let test_path = PathBuf::from(".shelly/tests")
         .join(handler_name)
         .join(format!("{}.toml", name));
+
+    // Ensure directory exists
+    if let Some(parent) = test_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
 
     std::fs::write(test_path, toml::to_string_pretty(&test)?)?;
 

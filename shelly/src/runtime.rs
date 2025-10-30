@@ -141,12 +141,32 @@ impl HandlerRuntimeInner {
         let specifier = ModuleSpecifier::from_file_path(&resolved)
             .map_err(|_| anyhow::anyhow!("Invalid path"))?;
 
+        // Extract handler name from file path (e.g., "cargo.ts" -> "cargo", "brazil-build.ts" -> "brazilBuild")
+        let file_name = resolved.file_stem()
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| anyhow::anyhow!("Invalid file name"))?;
+        
+        // Convert kebab-case to camelCase for handler name
+        let handler_name = file_name.split('-')
+            .enumerate()
+            .map(|(i, part)| {
+                if i == 0 {
+                    part.to_string()
+                } else {
+                    format!("{}{}", part.chars().next().unwrap().to_uppercase(), &part[1..])
+                }
+            })
+            .collect::<String>();
+        
+        let handler_export = format!("{}Handler", handler_name);
+
         let wrapper_code = format!(
             r#"
-            import {{ cargoHandler }} from "{}";
-            globalThis.cargoHandler = cargoHandler;
+            import {{ {handler_export} }} from "{}";
+            globalThis.handler = {handler_export};
             "#,
-            specifier
+            specifier,
+            handler_export = handler_export
         );
 
         let wrapper_spec = ModuleSpecifier::parse("file:///wrapper.js")?;
@@ -162,7 +182,7 @@ impl HandlerRuntimeInner {
     }
 
     fn matches(&mut self, command: &str) -> Result<bool> {
-        let code = format!("cargoHandler.matches({})", serde_json::to_string(command)?);
+        let code = format!("handler.matches({})", serde_json::to_string(command)?);
         let result = self.js_runtime.execute_script("<matches>", code)?;
         let scope = &mut self.js_runtime.handle_scope();
         let local = deno_core::v8::Local::new(scope, result);
@@ -175,7 +195,7 @@ impl HandlerRuntimeInner {
         settings: &HashMap<String, serde_json::Value>,
     ) -> Result<()> {
         let code = format!(
-            "globalThis.__handler = cargoHandler.create({}, {})",
+            "globalThis.__handler = handler.create({}, {})",
             serde_json::to_string(command)?,
             serde_json::to_string(settings)?
         );
