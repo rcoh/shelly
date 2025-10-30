@@ -39,6 +39,17 @@ pub struct ProcessInfo {
     pub output_file: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessStatus {
+    pub id: ProcessId,
+    pub command: String,
+    pub state: ProcessState,
+    pub started_at: SystemTime,
+    pub stdout_length: usize,
+    pub stderr_length: usize,
+    pub output_file: Option<PathBuf>,
+}
+
 #[derive(Serialize)]
 pub struct ProcessUpdate {
     pub incremental_summary: String,
@@ -207,6 +218,22 @@ impl ProcessManager {
     pub async fn get_process_status(&self, process_id: &ProcessId) -> Option<ProcessInfo> {
         let processes = self.processes.read().await;
         processes.get(process_id).map(|task| task.info.clone())
+    }
+
+    pub async fn get_process_status_summary(&self, process_id: &ProcessId) -> Option<ProcessStatus> {
+        let processes = self.processes.read().await;
+        processes.get(process_id).map(|task| {
+            let info = &task.info;
+            ProcessStatus {
+                id: info.id.clone(),
+                command: info.command.clone(),
+                state: info.state.clone(),
+                started_at: info.started_at,
+                stdout_length: info.raw_stdout.len(),
+                stderr_length: info.raw_stderr.len(),
+                output_file: info.output_file.clone(),
+            }
+        })
     }
 
     pub async fn wait_for(&self, process_id: &ProcessId) {

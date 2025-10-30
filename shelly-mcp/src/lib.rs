@@ -193,7 +193,7 @@ impl ShellyMcp {
         let params = params.0;
         let process_id = ProcessId(params.process_id);
 
-        if let Some(status) = self.process_manager.get_process_status(&process_id).await {
+        if let Some(status) = self.process_manager.get_process_status_summary(&process_id).await {
             Ok(CallToolResult {
                 content: vec![Content::text("Process status retrieved")],
                 structured_content: Some(serde_json::to_value(&status).unwrap()),
