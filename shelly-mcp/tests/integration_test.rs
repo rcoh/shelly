@@ -180,6 +180,7 @@ async fn test_mcp_execute_and_join() {
     }
 
     let process_id = structured_content["process_id"].as_str().unwrap();
+    let output_file = structured_content["output_file"].as_str().unwrap();
 
     // Poll for completion
     let final_response = loop {
@@ -204,25 +205,13 @@ async fn test_mcp_execute_and_join() {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     };
 
-    // Validate output
-    dbg!(&final_response);
-    let stdout = if let Some(stdout_str) =
-        final_response["result"]["structuredContent"]["stdout"].as_str()
-    {
-        stdout_str.to_string()
-    } else {
-        // Try reading from output file
-        let output_file = final_response["result"]["structuredContent"]["output_file"]
-            .as_str()
-            .unwrap();
-        tokio::fs::read_to_string(output_file).await.unwrap()
-    };
+    let file_output = tokio::fs::read_to_string(output_file).await.unwrap();
 
-    println!("Final stdout: {}", stdout);
+    println!("Final file output: {file_output}");
 
-    assert!(stdout.contains("Starting"));
-    assert!(stdout.contains("Middle"));
-    assert!(stdout.contains("Done"));
+    assert!(file_output.contains("Starting"));
+    assert!(file_output.contains("Middle"));
+    assert!(file_output.contains("Done"));
 
     child.kill().await.ok();
 }

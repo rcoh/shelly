@@ -1,5 +1,6 @@
 use anyhow::Result;
-use std::{path::PathBuf, fs, io::Write};
+use std::{fs, io::Write, path::PathBuf};
+use tracing::info;
 
 // Embed built-in handlers at compile time
 const CARGO_HANDLER: &[u8] = include_bytes!("../handlers/cargo.ts");
@@ -13,11 +14,14 @@ pub fn find_handler(command: &str) -> Result<Option<PathBuf>> {
         .ok_or_else(|| anyhow::anyhow!("Empty command"))?;
 
     let handler_filename = format!("{}.ts", cmd_name);
+    tracing::info!("looking for a {handler_filename}...");
 
     // 1. Check ~/.shelly
     if let Some(home_dir) = dirs::home_dir() {
         let home_handler = home_dir.join(".shelly").join(&handler_filename);
+        tracing::info!("looking for a {home_handler:?}...");
         if home_handler.exists() {
+            info!("found handler: {home_handler:?}");
             return Ok(Some(home_handler));
         }
     }

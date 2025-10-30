@@ -50,6 +50,7 @@ pub async fn execute_command_streaming(
     let (final_command, handler_env, rt) = if exact {
         (command.to_string(), HashMap::new(), None)
     } else if let Some(handler_path) = handler::find_handler(command)? {
+        tracing::info!("found custom hanlder for {command} @ {handler_path:?}");
         let mut rt = runtime::HandlerRuntime::new()?;
         rt.load_handler(handler_path.to_str().unwrap()).await?;
 
