@@ -5,8 +5,8 @@ use deno_core::{
     ModuleType, ResolutionKind, RuntimeOptions,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::rc::Rc;
+use std::{collections::HashMap, iter::Sum};
 use tokio::sync::{mpsc, oneshot};
 
 struct TsModuleLoader;
@@ -254,6 +254,21 @@ pub struct HandlerRuntime {
     tx: mpsc::UnboundedSender<RuntimeRequest>,
 }
 
+pub async fn process(
+    stdout: &str,
+    stderr: &str,
+    handler: &Option<HandlerRuntime>,
+) -> Result<SummaryResult> {
+    if let Some(handler) = handler {
+        handler.summarize(stdout, stderr, None).await
+    } else {
+        Ok(SummaryResult {
+            summary: Some(format!("{stdout}{stderr}")),
+            truncation: None,
+        })
+    }
+}
+
 impl HandlerRuntime {
     pub fn new() -> Result<Self> {
         let (tx, rx) = mpsc::unbounded_channel();
@@ -306,7 +321,7 @@ impl HandlerRuntime {
     }
 
     pub async fn summarize(
-        &mut self,
+        &self,
         stdout: &str,
         stderr: &str,
         exit_code: Option<i32>,

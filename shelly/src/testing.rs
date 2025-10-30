@@ -1,7 +1,7 @@
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use anyhow::Result;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TestCase {
@@ -24,7 +24,7 @@ pub fn find_tests(handler_name: &str) -> Result<Vec<(String, TestCase)>> {
     for entry in std::fs::read_dir(&test_dir)? {
         let entry = entry?;
         let path = entry.path();
-        
+
         if path.is_file() && path.extension().is_some_and(|e| e == "toml") {
             let name = path.file_stem().unwrap().to_string_lossy().to_string();
             let test: TestCase = toml::from_str(&std::fs::read_to_string(&path)?)?;
@@ -40,23 +40,21 @@ pub fn find_tests(handler_name: &str) -> Result<Vec<(String, TestCase)>> {
 pub async fn run_test(handler_path: &Path, name: &str, test: &TestCase) -> Result<TestResult> {
     let mut rt = crate::runtime::HandlerRuntime::new()?;
     rt.load_handler(handler_path.to_str().unwrap()).await?;
-    
+
     rt.create_handler(&test.command, &test.settings).await?;
     rt.prepare().await?;
-    
-    let result = rt.summarize(
-        &test.stdout,
-        &test.stderr,
-        Some(test.exit_code),
-    ).await?;
-    
+
+    let result = rt
+        .summarize(&test.stdout, &test.stderr, Some(test.exit_code))
+        .await?;
+
     let actual_summary = result.summary.unwrap_or_default();
-    
+
     // Trim leading/trailing whitespace for comparison
     let expected_trimmed = test.expected_summary.trim();
     let actual_trimmed = actual_summary.trim();
     let passed = actual_trimmed == expected_trimmed;
-    
+
     Ok(TestResult {
         name: name.to_string(),
         passed,
@@ -74,29 +72,29 @@ pub struct TestResult {
 }
 
 /// Update test snapshot
-pub async fn update_snapshot(handler_path: &Path, handler_name: &str, name: &str, test: &mut TestCase) -> Result<()> {
+pub async fn update_snapshot(
+    handler_path: &Path,
+    handler_name: &str,
+    name: &str,
+    test: &mut TestCase,
+) -> Result<()> {
     let mut rt = crate::runtime::HandlerRuntime::new()?;
     rt.load_handler(handler_path.to_str().unwrap()).await?;
-    
+
     rt.create_handler(&test.command, &test.settings).await?;
     rt.prepare().await?;
-    
-    let result = rt.summarize(
-        &test.stdout,
-        &test.stderr,
-        Some(test.exit_code),
-    ).await?;
-    
+
+    let result = rt
+        .summarize(&test.stdout, &test.stderr, Some(test.exit_code))
+        .await?;
+
     test.expected_summary = result.summary.unwrap_or_default();
-    
+
     let test_path = PathBuf::from(".shelly/tests")
         .join(handler_name)
         .join(format!("{}.toml", name));
-    
-    std::fs::write(
-        test_path,
-        toml::to_string_pretty(&test)?,
-    )?;
-    
+
+    std::fs::write(test_path, toml::to_string_pretty(&test)?)?;
+
     Ok(())
 }

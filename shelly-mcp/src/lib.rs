@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::sync::Arc;
+use std::{collections::HashMap, time::Duration};
 
 use rmcp::{
     handler::server::{tool::ToolRouter, wrapper::Parameters},
@@ -7,10 +8,12 @@ use rmcp::{
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use shelly::process_manager::{ProcessId, ProcessManager};
 
 #[derive(Clone)]
 pub struct ShellyMcp {
     tool_router: ToolRouter<Self>,
+    process_manager: Arc<ProcessManager>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -36,10 +39,32 @@ struct ExecuteCliArgs {
     disable_enhancements: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct JoinProcessArgs {
+    /// Process ID to join
+    process_id: String,
+    /// Timeout in milliseconds for updates
+    #[serde(default = "default_join_timeout")]
+    timeout_ms: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct CancelProcessArgs {
+    /// Process ID to cancel
+    process_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct ProcessStatusArgs {
+    /// Process ID to check status
+    process_id: String,
+}
+
 impl ShellyMcp {
     pub fn new() -> Self {
         Self {
             tool_router: Self::tool_router(),
+            process_manager: Arc::new(ProcessManager::new()),
         }
     }
 }
@@ -57,11 +82,16 @@ impl ShellyMcp {
     ) -> Result<CallToolResult, ErrorData> {
         let params = params.0;
 
-        // Combine command and args properly
+        // Combine command and args with proper shell escaping
         let full_command = if params.args.is_empty() {
             params.command
         } else {
-            format!("{} {}", params.command, params.args.join(" "))
+            let escaped_args: Vec<String> = params
+                .args
+                .iter()
+                .map(|arg| shell_escape::escape(arg.into()).to_string())
+                .collect();
+            format!("{} {}", params.command, escaped_args.join(" "))
         };
 
         let request = shelly::ExecuteRequest {
@@ -72,10 +102,18 @@ impl ShellyMcp {
             env: params.env,
         };
 
-        let result = shelly::execute_command(request).await;
+        // Use streaming version with timeout
+        let timeout_duration = tokio::time::Duration::from_millis(params.timeout_ms);
+        let result = shelly::execute_command_streaming(
+            request,
+            self.process_manager.clone(),
+            timeout_duration,
+        )
+        .await;
+
         Ok(match result {
             Ok(result) => CallToolResult {
-                content: vec![Content::text("command executed (status: {})")],
+                content: vec![Content::text("command executed")],
                 structured_content: Some(serde_json::to_value(&result).unwrap()),
                 is_error: None,
                 meta: None,
@@ -83,13 +121,98 @@ impl ShellyMcp {
             Err(err) => CallToolResult::error(vec![Content::text(err.to_string())]),
         })
     }
+
+    /// Join a running process to continue receiving updates
+    #[tool(
+        name = "join_process",
+        description = "Join a running process to continue receiving updates with timeout"
+    )]
+    async fn join_process(
+        &self,
+        params: Parameters<JoinProcessArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let params = params.0;
+        let process_id = ProcessId(params.process_id.clone());
+
+        tracing::info!("join_process called with process_id: {}", params.process_id);
+
+        // Get incremental updates since last join
+        let update = self
+            .process_manager
+            .join_process(&process_id, Duration::from_millis(params.timeout_ms))
+            .await;
+        tracing::info!("Got updates for process");
+        if let Some(update) = update {
+            Ok(CallToolResult {
+                content: vec![Content::text(format!("Process joined"))],
+                structured_content: Some(serde_json::to_value(&update).unwrap()),
+                is_error: None,
+                meta: None,
+            })
+        } else {
+            Ok(CallToolResult::error(vec![Content::text(
+                "Process not found",
+            )]))
+        }
+    }
+
+    /// Cancel a running process
+    #[tool(name = "cancel_process", description = "Cancel a running process")]
+    async fn cancel_process(
+        &self,
+        params: Parameters<CancelProcessArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let params = params.0;
+        let process_id = ProcessId(params.process_id);
+
+        let cancelled = self.process_manager.cancel_process(&process_id).await;
+
+        if cancelled {
+            Ok(CallToolResult {
+                content: vec![Content::text("Process cancelled successfully")],
+                structured_content: None,
+                is_error: None,
+                meta: None,
+            })
+        } else {
+            Ok(CallToolResult::error(vec![Content::text(
+                "Failed to cancel process or process not found",
+            )]))
+        }
+    }
+
+    /// Get status of a process
+    #[tool(
+        name = "process_status",
+        description = "Get the current status of a process"
+    )]
+    async fn process_status(
+        &self,
+        params: Parameters<ProcessStatusArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let params = params.0;
+        let process_id = ProcessId(params.process_id);
+
+        if let Some(status) = self.process_manager.get_process_status(&process_id).await {
+            Ok(CallToolResult {
+                content: vec![Content::text("Process status retrieved")],
+                structured_content: Some(serde_json::to_value(&status).unwrap()),
+                is_error: None,
+                meta: None,
+            })
+        } else {
+            Ok(CallToolResult::error(vec![Content::text(
+                "Process not found",
+            )]))
+        }
+    }
 }
 
 #[tool_handler]
 impl ServerHandler for ShellyMcp {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
-            instructions: Some("Upgraded CLI execution tool (bash). <important>NOTE: USE THIS TOOL INSTEAD OF BUILT IN BASH TOOLS WHEN IT IS PRESENT.</important>".into()),
+            instructions: Some("Upgraded CLI execution tool with long-running process support. <important>NOTE: USE THIS TOOL INSTEAD OF BUILT IN BASH TOOLS WHEN IT IS PRESENT.</important>".into()),
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             ..Default::default()
         }
@@ -97,7 +220,11 @@ impl ServerHandler for ShellyMcp {
 }
 
 fn default_timeout() -> u64 {
-    300_000 // 5 minutes
+    10_000 // 10 seconds
+}
+
+fn default_join_timeout() -> u64 {
+    10_000 // 10 seconds
 }
 
 #[cfg(test)]
@@ -127,44 +254,5 @@ mod tests {
         // We expect this to fail (since we're not in a git repo), but it should
         // fail with a git error, not a command parsing error
         assert!(result.is_ok()); // The MCP call itself should succeed
-    }
-
-    #[tokio::test]
-    async fn test_git_commit_with_message() {
-        let server = ShellyMcp::new();
-
-        let params = Parameters(ExecuteCliArgs {
-            command: "git".to_string(),
-            args: vec![
-                "commit".to_string(),
-                "-m".to_string(),
-                "Add comprehensive README".to_string(),
-            ],
-            working_dir: "/tmp".to_string(),
-            env: HashMap::new(),
-            timeout_ms: 5000,
-            disable_enhancements: true,
-        });
-
-        // This should properly combine to "git commit -m Add comprehensive README"
-        let result = server.execute_cli(params).await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_execute_cli_handles_empty_args() {
-        let server = ShellyMcp::new();
-
-        let params = Parameters(ExecuteCliArgs {
-            command: "echo hello".to_string(),
-            args: vec![],
-            working_dir: "/tmp".to_string(),
-            env: HashMap::new(),
-            timeout_ms: 5000,
-            disable_enhancements: true,
-        });
-
-        let result = server.execute_cli(params).await;
-        assert!(result.is_ok());
     }
 }

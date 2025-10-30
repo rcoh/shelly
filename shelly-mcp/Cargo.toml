@@ -17,3 +17,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0.100"
 clap = { version = "4.0", features = ["derive"] }
 dirs = "5.0"
+shell-escape = "0.1"

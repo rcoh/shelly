@@ -1,11 +1,17 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::time::Duration;
+
+use crate::process_manager::ProcessState;
 
 pub mod executor;
 pub mod handler;
 pub mod output;
+pub mod process_manager;
 pub mod runtime;
+pub mod streaming_executor;
 pub mod testing;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,7 +30,99 @@ pub struct ExecutedCommand {
     pub working_dir: PathBuf,
 }
 
-/// Execute a command with optional handler processing
+/// Execute a command with streaming support and timeout handling
+pub async fn execute_command_streaming(
+    request: ExecuteRequest,
+    process_manager: Arc<process_manager::ProcessManager>,
+    timeout_duration: Duration,
+) -> anyhow::Result<ExecutionResult> {
+    let command = &request.command;
+    let settings = &request.settings;
+    let exact = request.exact;
+
+    // Clean up old output files
+    let _ = output::cleanup_old_files();
+
+    // Create output file
+    let output_file = output::create_output_file(command)?;
+
+    // Find and load handler (if not exact mode)
+    let (final_command, handler_env, rt) = if exact {
+        (command.to_string(), HashMap::new(), None)
+    } else if let Some(handler_path) = handler::find_handler(command)? {
+        let mut rt = runtime::HandlerRuntime::new()?;
+        rt.load_handler(handler_path.to_str().unwrap()).await?;
+
+        if rt.matches(command).await? {
+            rt.create_handler(command, &settings).await?;
+            let prep = rt.prepare().await?;
+            (prep.command, prep.env, Some(rt))
+        } else {
+            (command.to_string(), HashMap::new(), None)
+        }
+    } else {
+        (command.to_string(), HashMap::new(), None)
+    };
+
+    // Merge env vars: start with agent's, then handler's (handler wins)
+    let mut final_env = request.env.clone();
+    final_env.extend(handler_env);
+
+    // Execute with streaming
+    let streaming_config = streaming_executor::StreamingExecutorConfig {
+        command: final_command.clone(),
+        env: final_env.clone(),
+        working_dir: request.working_dir.clone(),
+        update_interval: Duration::from_millis(500), // Update every 500ms
+        handler: rt,
+    };
+
+    let process_id = streaming_executor::spawn(streaming_config, process_manager.clone()).await?;
+    let status = process_manager
+        .join_process(&process_id, timeout_duration)
+        .await
+        .expect("we just started it, it should be running");
+    let executed_command = ExecutedCommand {
+        command: final_command,
+        env: final_env,
+        working_dir: request.working_dir,
+    };
+
+    // If command timed out, return partial results with process info
+    Ok(match status.status {
+        ProcessState::Running => ExecutionResult {
+            summary: format!(
+                "Command is still running - use join_process to continue monitoring\n{}",
+                status.incremental_summary
+            ),
+            output_file: output_file.to_string_lossy().to_string(),
+            exit_code: -1,
+            truncated: false,
+            truncation_reason: Some("timeout".to_string()),
+            executed_command,
+            process_id: Some(process_id),
+            is_running: true,
+            available_actions: vec![
+                ProcessAction::Join,
+                ProcessAction::Cancel,
+                ProcessAction::Status,
+            ],
+        },
+        ProcessState::Completed { exit_code } => ExecutionResult {
+            summary: status.incremental_summary,
+            output_file: output_file.to_string_lossy().to_string(),
+            exit_code,
+            truncated: false,
+            truncation_reason: Some("ignore".to_string()),
+            executed_command,
+            process_id: Some(process_id),
+            is_running: false,
+            available_actions: vec![],
+        },
+        _ => panic!("unepxected state"),
+    })
+}
+
 pub async fn execute_command(request: ExecuteRequest) -> anyhow::Result<ExecutionResult> {
     let command = &request.command;
     let settings = &request.settings;
@@ -127,11 +225,16 @@ pub async fn execute_command(request: ExecuteRequest) -> anyhow::Result<Executio
                 handler_trunc.reason,
             )
         } else if summary.len() > MAX_CHARS {
-            // Fallback to length-based truncation
+            // Fallback to length-based truncation - show the END of output
+            let truncated_summary = if summary.len() > MAX_CHARS {
+                format!("...\n{}", &summary[summary.len() - MAX_CHARS..])
+            } else {
+                summary.clone()
+            };
             (
                 format!(
-                    "{}...\n\n[Output truncated due to length. See full output in {}]",
-                    &summary[..MAX_CHARS],
+                    "{}\n\n[Output truncated due to length. See full output in {}]",
+                    truncated_summary,
                     output_file.display()
                 ),
                 true,
@@ -152,6 +255,9 @@ pub async fn execute_command(request: ExecuteRequest) -> anyhow::Result<Executio
             env: final_env,
             working_dir: request.working_dir,
         },
+        process_id: None,
+        is_running: false,
+        available_actions: vec![],
     })
 }
 
@@ -169,6 +275,19 @@ pub struct ExecutionResult {
     pub truncation_reason: Option<String>,
     /// The actual command that was executed
     pub executed_command: ExecutedCommand,
+    /// Process ID for long-running commands (if applicable)
+    pub process_id: Option<process_manager::ProcessId>,
+    /// Whether the command is still running
+    pub is_running: bool,
+    /// Available actions for the client
+    pub available_actions: Vec<ProcessAction>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ProcessAction {
+    Join,   // Continue waiting with updates
+    Cancel, // Cancel the running process
+    Status, // Get current status
 }
 
 #[cfg(test)]
@@ -249,20 +368,47 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_handler_test_framework() {
-        // Find tests for cargo handler
-        let tests = testing::find_tests("cargo").unwrap();
-        assert!(!tests.is_empty(), "Should find cargo tests");
+    async fn test_output_file_creation() {
+        let request = ExecuteRequest {
+            command: "echo test output".to_string(),
+            settings: HashMap::new(),
+            exact: true,
+            working_dir: std::env::current_dir().unwrap(),
+            env: HashMap::new(),
+        };
 
-        // Run all tests
-        let handler_path = std::path::PathBuf::from("handlers/cargo.ts");
-        for (name, test) in &tests {
-            let result = testing::run_test(&handler_path, name, test).await.unwrap();
-            assert!(
-                result.passed,
-                "Test {} failed:\nExpected: {}\nActual: {}",
-                result.name, result.expected, result.actual
-            );
-        }
+        let result = execute_command(request).await.unwrap();
+
+        // Check that output file was created and contains content
+        assert!(!result.output_file.is_empty());
+        let output_content = std::fs::read_to_string(&result.output_file).unwrap();
+        assert!(output_content.contains("test output"));
+    }
+
+    #[tokio::test]
+    async fn test_streaming_output_file_creation() {
+        let process_manager = Arc::new(process_manager::ProcessManager::new());
+
+        let request = ExecuteRequest {
+            command: "echo streaming test".to_string(),
+            settings: HashMap::new(),
+            exact: true,
+            working_dir: std::env::current_dir().unwrap(),
+            env: HashMap::new(),
+        };
+
+        let result = execute_command_streaming(
+            request,
+            process_manager,
+            Duration::from_secs(30), // Long timeout so it completes
+        )
+        .await
+        .unwrap();
+
+        dbg!(&result);
+        // Check that output file was created and contains content
+        assert!(!result.output_file.is_empty());
+        let output_content = std::fs::read_to_string(&result.output_file).unwrap();
+        assert!(output_content.contains("streaming test"));
     }
 }

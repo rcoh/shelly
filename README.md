@@ -71,34 +71,9 @@ println!("{}", result.summary);  // "Build succeeded" instead of verbose output
 
 ## Custom Handlers
 
-Create handlers in `.shelly/<name>.ts`:
+Create handlers in `.shelly/<name>.ts` to customize command processing.
 
-```typescript
-import type { HandlerFactory, Handler } from "./api.ts";
-
-export const myHandler: HandlerFactory = {
-  matches(command: string): boolean {
-    return command.startsWith("my-tool ");
-  },
-
-  create(command: string, settings: Record<string, any>): Handler {
-    return new MyHandler(command, settings);
-  },
-
-  settings(): SettingsSchema {
-    return {
-      type: "object",
-      properties: {
-        verbose: { type: "boolean", default: false }
-      }
-    };
-  }
-};
-
-class MyHandler implements Handler {
-  // Implementation...
-}
-```
+See [WRITING_HANDLERS.md](WRITING_HANDLERS.md) for a complete guide with examples.
 
 ## Testing Handlers
 

@@ -1,3 +1,4 @@
 #!/bin/bash
 cd "$(dirname "$0")"
-cargo run --quiet --bin shelly-mcp
+cargo build --quiet --bin shelly-mcp
+./target/debug/shelly-mcp

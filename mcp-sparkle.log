@@ -51,3 +51,14 @@
 2025-10-29T19:46:58.014278Z  INFO sparkle_mcp::server: Initializing Sparkle AI Collaboration Identity MCP Server
 2025-10-29T19:46:58.020100Z  INFO rmcp::handler::server: client initialized
 2025-10-29T19:46:58.020174Z  INFO serve_inner: rmcp::service: Service initialized as server peer_info=Some(InitializeRequestParam { protocol_version: ProtocolVersion("2025-03-26"), capabilities: ClientCapabilities { experimental: None, roots: None, sampling: None, elicitation: None }, client_info: Implementation { name: "Q DEV CLI", title: None, version: "1.0.0", icons: None, website_url: None } })
+2025-10-29T20:10:43.452172Z  INFO sparkle_mcp: 🔥 Starting Sparkle AI Collaboration Identity MCP Server
+2025-10-29T20:10:43.472306Z  INFO sparkle_mcp: Working directory: "/Users/rcoh/code/shelly"
+2025-10-29T20:10:43.472494Z  INFO sparkle_mcp::server: Initializing Sparkle AI Collaboration Identity MCP Server
+2025-10-29T20:10:43.475488Z  INFO rmcp::handler::server: client initialized
+2025-10-29T20:10:43.475552Z  INFO serve_inner: rmcp::service: Service initialized as server peer_info=Some(InitializeRequestParam { protocol_version: ProtocolVersion("2025-03-26"), capabilities: ClientCapabilities { experimental: None, roots: None, sampling: None, elicitation: None }, client_info: Implementation { name: "Q DEV CLI", title: None, version: "1.0.0", icons: None, website_url: None } })
+2025-10-29T20:27:11.644087Z  INFO serve_inner: rmcp::service: input stream terminated
+2025-10-29T20:27:18.270479Z  INFO sparkle_mcp: 🔥 Starting Sparkle AI Collaboration Identity MCP Server
+2025-10-29T20:27:18.273062Z  INFO sparkle_mcp: Working directory: "/Users/rcoh/code/shelly"
+2025-10-29T20:27:18.273084Z  INFO sparkle_mcp::server: Initializing Sparkle AI Collaboration Identity MCP Server
+2025-10-29T20:27:18.274517Z  INFO rmcp::handler::server: client initialized
+2025-10-29T20:27:18.274546Z  INFO serve_inner: rmcp::service: Service initialized as server peer_info=Some(InitializeRequestParam { protocol_version: ProtocolVersion("2025-03-26"), capabilities: ClientCapabilities { experimental: None, roots: None, sampling: None, elicitation: None }, client_info: Implementation { name: "Q DEV CLI", title: None, version: "1.0.0", icons: None, website_url: None } })
