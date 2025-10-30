@@ -1,38 +1,47 @@
 use anyhow::Result;
-use std::{env::current_dir, path::PathBuf};
+use std::{path::PathBuf, fs, io::Write};
+
+// Embed built-in handlers at compile time
+const CARGO_HANDLER: &[u8] = include_bytes!("../handlers/cargo.ts");
 
 /// Find handler file for a command
-/// Searches .shelly/ in CWD first, then falls back to built-in handlers
+/// Searches in order: ~/.shelly, CWD/.shelly, built-in handlers
 pub fn find_handler(command: &str) -> Result<Option<PathBuf>> {
-    let wd = current_dir().unwrap();
-    tracing::info!("looking for handler for {command} in {wd:?}");
     let cmd_name = command
         .split_whitespace()
         .next()
         .ok_or_else(|| anyhow::anyhow!("Empty command"))?;
 
-    // Check .shelly/ in current directory first
-    let local_handler = PathBuf::from(".shelly").join(format!("{}.ts", cmd_name));
-    if local_handler.exists() {
-        return Ok(Some(local_handler));
-    }
+    let handler_filename = format!("{}.ts", cmd_name);
 
-    // Check built-in handlers - look in the shelly crate's handlers directory
-    let builtin_handler = PathBuf::from("handlers").join(format!("{}.ts", cmd_name));
-    if builtin_handler.exists() {
-        return Ok(Some(builtin_handler));
-    }
-
-    // Also try relative to the current executable location for installed shelly
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            let relative_handler = exe_dir
-                .join("../share/shelly/handlers")
-                .join(format!("{}.ts", cmd_name));
-            if relative_handler.exists() {
-                return Ok(Some(relative_handler));
-            }
+    // 1. Check ~/.shelly
+    if let Some(home_dir) = dirs::home_dir() {
+        let home_handler = home_dir.join(".shelly").join(&handler_filename);
+        if home_handler.exists() {
+            return Ok(Some(home_handler));
         }
+    }
+
+    // 2. Check CWD/.shelly
+    let cwd_handler = PathBuf::from(".shelly").join(&handler_filename);
+    if cwd_handler.exists() {
+        return Ok(Some(cwd_handler));
+    }
+
+    // 3. Check built-in handlers
+    let builtin_content = match cmd_name {
+        "cargo" => Some(CARGO_HANDLER),
+        _ => None,
+    };
+
+    if let Some(content) = builtin_content {
+        // Create temp file with built-in handler content
+        // Use the original handler name to ensure proper module loading
+        let temp_dir = std::env::temp_dir();
+        let temp_handler = temp_dir.join(handler_filename);
+        let mut file = fs::File::create(&temp_handler)?;
+        file.write_all(content)?;
+        return Ok(Some(temp_handler));
     }
 
     Ok(None)

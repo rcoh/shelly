@@ -5,8 +5,8 @@ use deno_core::{
     ModuleType, ResolutionKind, RuntimeOptions,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::rc::Rc;
-use std::{collections::HashMap, iter::Sum};
 use tokio::sync::{mpsc, oneshot};
 
 struct TsModuleLoader;
@@ -142,22 +142,28 @@ impl HandlerRuntimeInner {
             .map_err(|_| anyhow::anyhow!("Invalid path"))?;
 
         // Extract handler name from file path (e.g., "cargo.ts" -> "cargo", "brazil-build.ts" -> "brazilBuild")
-        let file_name = resolved.file_stem()
+        let file_name = resolved
+            .file_stem()
             .and_then(|s| s.to_str())
             .ok_or_else(|| anyhow::anyhow!("Invalid file name"))?;
-        
+
         // Convert kebab-case to camelCase for handler name
-        let handler_name = file_name.split('-')
+        let handler_name = file_name
+            .split('-')
             .enumerate()
             .map(|(i, part)| {
                 if i == 0 {
                     part.to_string()
                 } else {
-                    format!("{}{}", part.chars().next().unwrap().to_uppercase(), &part[1..])
+                    format!(
+                        "{}{}",
+                        part.chars().next().unwrap().to_uppercase(),
+                        &part[1..]
+                    )
                 }
             })
             .collect::<String>();
-        
+
         let handler_export = format!("{}Handler", handler_name);
 
         let wrapper_code = format!(

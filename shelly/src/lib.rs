@@ -126,6 +126,13 @@ pub async fn execute_command_streaming(
     })
 }
 
+/// Simple wrapper around execute_command_streaming for non-streaming use cases
+pub async fn execute_command(request: ExecuteRequest) -> anyhow::Result<ExecutionResult> {
+    let process_manager = Arc::new(process_manager::ProcessManager::new());
+    let timeout_duration = Duration::from_secs(30);
+    execute_command_streaming(request, process_manager, timeout_duration).await
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionResult {
     /// Summary of the command output (max ~500 tokens)
