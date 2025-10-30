@@ -78,6 +78,7 @@ pub async fn execute_command_streaming(
         working_dir: request.working_dir.clone(),
         update_interval: Duration::from_millis(500), // Update every 500ms
         handler: rt,
+        output_file: output_file.clone(),
     };
 
     let process_id = streaming_executor::spawn(streaming_config, process_manager.clone()).await?;

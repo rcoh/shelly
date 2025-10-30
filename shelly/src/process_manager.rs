@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::{watch, RwLock};
@@ -8,6 +9,7 @@ use tokio::time::Duration;
 use uuid::Uuid;
 
 use crate::runtime::{process, HandlerRuntime};
+use crate::output;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub struct ProcessId(pub String);
@@ -34,6 +36,7 @@ pub struct ProcessInfo {
     pub started_at: SystemTime,
     pub raw_stdout: String,
     pub raw_stderr: String,
+    pub output_file: Option<PathBuf>,
 }
 
 #[derive(Serialize)]
@@ -96,7 +99,7 @@ impl ProcessManager {
         Self { processes }
     }
 
-    pub async fn start_process(&self, command: String) -> ProcessId {
+    pub async fn start_process(&self, command: String, output_file: PathBuf) -> ProcessId {
         let process_id = ProcessId::new();
         let info = ProcessInfo {
             id: process_id.clone(),
@@ -105,6 +108,7 @@ impl ProcessManager {
             started_at: SystemTime::now(),
             raw_stdout: String::new(),
             raw_stderr: String::new(),
+            output_file: Some(output_file),
         };
 
         let (tx, rx) = watch::channel(false);
@@ -174,6 +178,17 @@ impl ProcessManager {
         let mut processes = self.processes.write().await;
         let task = processes.get_mut(process_id).unwrap();
         task.info.state = ProcessState::Completed { exit_code };
+        
+        // Write output to file if path is set
+        if let Some(output_file) = &task.info.output_file {
+            let _ = output::write_output(
+                output_file,
+                &task.info.raw_stdout,
+                &task.info.raw_stderr,
+                exit_code,
+            );
+        }
+        
         let _ = task.complete_tx.send(true);
     }
 

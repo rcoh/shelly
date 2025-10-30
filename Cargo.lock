@@ -2001,6 +2001,7 @@ dependencies = [
  "clap",
  "deno_ast",
  "deno_core",
+ "dirs",
  "serde",
  "serde_json",
  "shell-words",

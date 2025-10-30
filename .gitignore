@@ -1,1 +1,5 @@
 /target
+.logs
+.amazonq/cli-todo-lists/*
+shelly-mcp.log
+mcp-sparkle.log

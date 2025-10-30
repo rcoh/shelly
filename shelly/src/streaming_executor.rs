@@ -5,7 +5,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
-use tokio::time::{timeout, Duration};
+use tokio::time::Duration;
 
 use crate::process_manager::{ProcessId, ProcessManager};
 use crate::runtime::HandlerRuntime;
@@ -16,6 +16,7 @@ pub struct StreamingExecutorConfig {
     pub working_dir: PathBuf,
     pub update_interval: Duration,
     pub handler: Option<HandlerRuntime>,
+    pub output_file: PathBuf,
 }
 
 pub struct StreamingExecutorResult {
@@ -32,7 +33,7 @@ pub async fn spawn(
     process_manager: Arc<ProcessManager>,
 ) -> Result<ProcessId> {
     // Start process tracking
-    let process_id = process_manager.start_process(config.command.clone()).await;
+    let process_id = process_manager.start_process(config.command.clone(), config.output_file.clone()).await;
 
     // Spawn the actual execution task
     let process_manager_clone = process_manager.clone();
