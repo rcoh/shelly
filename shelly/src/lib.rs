@@ -54,10 +54,13 @@ pub async fn execute_command_streaming(
         rt.load_handler(handler_path.to_str().unwrap()).await?;
 
         if rt.matches(command).await? {
+            tracing::info!("Found custom handler for {command}");
             rt.create_handler(command, &settings).await?;
             let prep = rt.prepare().await?;
+            tracing::info!("Command has changed command to be: {prep:?}");
             (prep.command, prep.env, Some(rt))
         } else {
+            tracing::info!("no custom handler for {command}");
             (command.to_string(), HashMap::new(), None)
         }
     } else {
@@ -120,144 +123,6 @@ pub async fn execute_command_streaming(
             available_actions: vec![],
         },
         _ => panic!("unepxected state"),
-    })
-}
-
-pub async fn execute_command(request: ExecuteRequest) -> anyhow::Result<ExecutionResult> {
-    let command = &request.command;
-    let settings = &request.settings;
-    let exact = request.exact;
-
-    // Clean up old output files
-    let _ = output::cleanup_old_files();
-
-    // Create output file
-    let output_file = output::create_output_file(command)?;
-
-    // Find and load handler (if not exact mode)
-    let (final_command, handler_env) = if exact {
-        (command.to_string(), HashMap::new())
-    } else if let Some(handler_path) = handler::find_handler(command)? {
-        let mut rt = runtime::HandlerRuntime::new()?;
-        rt.load_handler(handler_path.to_str().unwrap()).await?;
-
-        if rt.matches(command).await? {
-            rt.create_handler(command, &settings).await?;
-            let prep = rt.prepare().await?;
-            (prep.command, prep.env)
-        } else {
-            (command.to_string(), HashMap::new())
-        }
-    } else {
-        (command.to_string(), HashMap::new())
-    };
-
-    // Merge env vars: start with agent's, then handler's (handler wins)
-    let mut final_env = request.env.clone();
-    final_env.extend(handler_env);
-
-    // Execute command
-    let exec_result = executor::execute(executor::ExecutorConfig {
-        command: final_command.clone(),
-        env: final_env.clone(),
-        working_dir: request.working_dir.clone(),
-    })
-    .await?;
-
-    // Write full output to file
-    output::write_output(
-        &output_file,
-        &exec_result.stdout,
-        &exec_result.stderr,
-        exec_result.exit_code,
-    )?;
-
-    // Get summary (either from handler or raw output)
-    let (summary, handler_truncation) = if exact {
-        (
-            format!("{}\n{}", exec_result.stdout, exec_result.stderr),
-            None,
-        )
-    } else if let Some(handler_path) = handler::find_handler(command)? {
-        let mut rt = runtime::HandlerRuntime::new()?;
-        rt.load_handler(handler_path.to_str().unwrap()).await?;
-
-        if rt.matches(command).await? {
-            rt.create_handler(command, &settings).await?;
-            rt.prepare().await?;
-            let result = rt
-                .summarize(
-                    &exec_result.stdout,
-                    &exec_result.stderr,
-                    Some(exec_result.exit_code),
-                )
-                .await?;
-            (
-                result.summary.unwrap_or_else(|| "No output".to_string()),
-                result.truncation,
-            )
-        } else {
-            (
-                format!("{}\n{}", exec_result.stdout, exec_result.stderr),
-                None,
-            )
-        }
-    } else {
-        (
-            format!("{}\n{}", exec_result.stdout, exec_result.stderr),
-            None,
-        )
-    };
-
-    // Apply length-based truncation if needed and no handler truncation occurred
-    const MAX_CHARS: usize = 10000;
-    let (final_summary, truncated, truncation_reason) =
-        if let Some(handler_trunc) = handler_truncation {
-            // Handler provided truncation info
-            let truncation_note = if let Some(desc) = &handler_trunc.description {
-                format!("\n\n[{}]", desc)
-            } else {
-                String::new()
-            };
-            (
-                format!("{}{}", summary, truncation_note),
-                handler_trunc.truncated,
-                handler_trunc.reason,
-            )
-        } else if summary.len() > MAX_CHARS {
-            // Fallback to length-based truncation - show the END of output
-            let truncated_summary = if summary.len() > MAX_CHARS {
-                format!("...\n{}", &summary[summary.len() - MAX_CHARS..])
-            } else {
-                summary.clone()
-            };
-            (
-                format!(
-                    "{}\n\n[Output truncated due to length. See full output in {}]",
-                    truncated_summary,
-                    output_file.display()
-                ),
-                true,
-                Some("content_too_large".to_string()),
-            )
-        } else {
-            (summary, false, None)
-        };
-
-    Ok(ExecutionResult {
-        summary: final_summary,
-        output_file: output_file.to_string_lossy().to_string(),
-        exit_code: exec_result.exit_code,
-        truncated,
-        truncation_reason,
-        executed_command: ExecutedCommand {
-            command: final_command,
-            env: final_env,
-            working_dir: request.working_dir,
-        },
-        process_id: None,
-        is_running: false,
-        available_actions: vec![],
     })
 }
 

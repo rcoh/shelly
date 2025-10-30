@@ -1,9 +1,11 @@
 use anyhow::Result;
-use std::path::PathBuf;
+use std::{env::current_dir, path::PathBuf};
 
 /// Find handler file for a command
 /// Searches .shelly/ in CWD first, then falls back to built-in handlers
 pub fn find_handler(command: &str) -> Result<Option<PathBuf>> {
+    let wd = current_dir().unwrap();
+    tracing::info!("looking for handler for {command} in {wd:?}");
     let cmd_name = command
         .split_whitespace()
         .next()
