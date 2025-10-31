@@ -183,7 +183,7 @@ async fn test_mcp_execute_and_join() {
     let output_file = structured_content["output_file"].as_str().unwrap();
 
     // Poll for completion
-    let final_response = loop {
+    let _final_response = loop {
         let join_args = JoinArgs {
             process_id: process_id.to_string(),
             timeout_ms: 1000,

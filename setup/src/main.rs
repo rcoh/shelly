@@ -3,8 +3,6 @@ async fn main() -> anyhow::Result<()> {
     setup_shelly().await
 }
 
-use std::io::BufRead;
-
 async fn setup_shelly() -> anyhow::Result<()> {
     println!("🔧 Setting up Shelly...");
 

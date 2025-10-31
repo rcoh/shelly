@@ -95,7 +95,7 @@ async fn run_handler_tests(handler_name: &str, update: bool) -> anyhow::Result<(
     };
 
     // Find tests
-    let mut tests = testing::find_tests(handler_name)?;
+    let tests = testing::find_tests(handler_name)?;
     if tests.is_empty() {
         println!("No tests found for handler: {}", handler_name);
         return Ok(());

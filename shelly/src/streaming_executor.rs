@@ -172,7 +172,7 @@ mod tests {
         };
 
         let process_id = spawn(config, process_manager.clone()).await.unwrap();
-        let resp = process_manager
+        let _resp = process_manager
             .join_process(&process_id, Duration::from_millis(10))
             .await;
 
