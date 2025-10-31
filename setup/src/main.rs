@@ -35,11 +35,27 @@ fn build_release_binary() -> anyhow::Result<()> {
 
     let output = std::process::Command::new("cargo")
         .args(["build", "--release", "-p", "shelly-mcp"])
-        .output()?;
+        .output()
+        .map_err(|e| anyhow::anyhow!(
+            "❌ Failed to run cargo command: {}\n💡 Ensure cargo is installed and in PATH", e
+        ))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("Failed to build shelly-mcp:\n{}", stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        
+        let mut error_msg = String::from("❌ Build failed\n");
+        
+        if !stderr.is_empty() {
+            error_msg.push_str(&format!("📋 Error output:\n{}\n", stderr));
+        }
+        if !stdout.is_empty() {
+            error_msg.push_str(&format!("📋 Build output:\n{}\n", stdout));
+        }
+        
+        error_msg.push_str("💡 Try: cargo clean && cargo build --release -p shelly-mcp");
+        
+        anyhow::bail!(error_msg);
     }
 
     println!("   ✅ Build complete");
@@ -58,30 +74,72 @@ fn install_binary() -> anyhow::Result<()> {
 
     if !target_exe.exists() {
         anyhow::bail!(
-            "shelly-mcp binary not found at {}. Please run 'cargo build --release' first.",
+            "❌ Binary not found: {}\n💡 Solution: Run 'cargo build --release -p shelly-mcp' first",
             target_exe.display()
         );
     }
 
     let bin_dir = dirs::home_dir()
-        .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?
+        .ok_or_else(|| anyhow::anyhow!("❌ Could not find home directory"))?
         .join(".local/bin");
 
-    std::fs::create_dir_all(&bin_dir)?;
+    if let Err(e) = std::fs::create_dir_all(&bin_dir) {
+        anyhow::bail!(
+            "❌ Failed to create bin directory: {}\n💡 Check permissions for: {}",
+            e,
+            bin_dir.display()
+        );
+    }
+
     let target_path = bin_dir.join("shelly-mcp");
 
-    std::fs::copy(&target_exe, &target_path)?;
+    // Handle "Text file busy" error with retry and better messaging
+    match std::fs::copy(&target_exe, &target_path) {
+        Ok(_) => {},
+        Err(e) if e.raw_os_error() == Some(26) => {
+            anyhow::bail!(
+                "❌ Cannot install binary - file is currently in use (Text file busy)\n\
+                 💡 The shelly-mcp process is likely running. Try:\n\
+                    • Stop any running Q CLI sessions\n\
+                    • Kill shelly-mcp processes: pkill shelly-mcp\n\
+                    • Wait a moment and try again\n\
+                 📍 Target: {}",
+                target_path.display()
+            );
+        },
+        Err(e) => {
+            anyhow::bail!(
+                "❌ Failed to copy binary: {}\n\
+                 📍 From: {}\n\
+                 📍 To: {}\n\
+                 💡 Check file permissions and disk space",
+                e,
+                target_exe.display(),
+                target_path.display()
+            );
+        }
+    }
 
     // Make executable on Unix systems
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&target_path)?.permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&target_path, perms)?;
+        if let Err(e) = std::fs::metadata(&target_path)
+            .and_then(|metadata| {
+                let mut perms = metadata.permissions();
+                perms.set_mode(0o755);
+                std::fs::set_permissions(&target_path, perms)
+            })
+        {
+            anyhow::bail!(
+                "❌ Failed to set executable permissions: {}\n📍 File: {}",
+                e,
+                target_path.display()
+            );
+        }
     }
 
-    println!("   Installed to: {}", target_path.display());
+    println!("   ✅ Installed to: {}", target_path.display());
     Ok(())
 }
 
@@ -89,13 +147,22 @@ fn create_shelly_directory() -> anyhow::Result<()> {
     println!("📁 Creating .shelly directory structure...");
 
     let home_dir =
-        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("❌ Could not find home directory"))?;
     let shelly_dir = home_dir.join(".shelly");
 
-    std::fs::create_dir_all(&shelly_dir)?;
-    std::fs::create_dir_all(shelly_dir.join("tests"))?;
+    std::fs::create_dir_all(&shelly_dir)
+        .map_err(|e| anyhow::anyhow!(
+            "❌ Failed to create .shelly directory: {}\n📍 Path: {}\n💡 Check permissions",
+            e, shelly_dir.display()
+        ))?;
+        
+    std::fs::create_dir_all(shelly_dir.join("tests"))
+        .map_err(|e| anyhow::anyhow!(
+            "❌ Failed to create tests directory: {}\n📍 Path: {}/tests",
+            e, shelly_dir.display()
+        ))?;
 
-    println!("   Created directory: {}", shelly_dir.display());
+    println!("   ✅ Created directory: {}", shelly_dir.display());
     Ok(())
 }
 
@@ -103,7 +170,7 @@ fn create_test_handler() -> anyhow::Result<()> {
     println!("🧪 Creating test handler...");
 
     let home_dir =
-        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("❌ Could not find home directory"))?;
     let shelly_dir = home_dir.join(".shelly");
 
     // Create api.ts file
@@ -206,7 +273,12 @@ export interface SettingDefinition {
 }
 "#;
 
-    std::fs::write(shelly_dir.join("api.ts"), api_content)?;
+    let api_path = shelly_dir.join("api.ts");
+    std::fs::write(&api_path, api_content)
+        .map_err(|e| anyhow::anyhow!(
+            "❌ Failed to create api.ts: {}\n📍 Path: {}",
+            e, api_path.display()
+        ))?;
 
     // Create shelly-test.ts handler
     let handler_content = r#"import type { HandlerFactory, Handler, PrepareResult, SummaryResult } from "./api.ts";
@@ -251,8 +323,14 @@ export const shellyTestHandler: HandlerFactory = {
 };
 "#;
 
-    std::fs::write(shelly_dir.join("shelly-test.ts"), handler_content)?;
-    println!("   Created shelly-test handler");
+    let handler_path = shelly_dir.join("shelly-test.ts");
+    std::fs::write(&handler_path, handler_content)
+        .map_err(|e| anyhow::anyhow!(
+            "❌ Failed to create shelly-test.ts: {}\n📍 Path: {}",
+            e, handler_path.display()
+        ))?;
+        
+    println!("   ✅ Created test handler files");
     Ok(())
 }
 
@@ -260,8 +338,15 @@ fn configure_q_cli_mcp() -> anyhow::Result<()> {
     println!("⚙️  Configuring Q CLI MCP integration...");
 
     let home_dir =
-        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("❌ Could not find home directory"))?;
     let shelly_mcp_path = home_dir.join(".local/bin/shelly-mcp");
+
+    if !shelly_mcp_path.exists() {
+        anyhow::bail!(
+            "❌ Binary not found: {}\n💡 Installation may have failed",
+            shelly_mcp_path.display()
+        );
+    }
 
     let output = std::process::Command::new("q")
         .args([
@@ -282,20 +367,23 @@ fn configure_q_cli_mcp() -> anyhow::Result<()> {
         }
         Ok(result) => {
             let stderr = String::from_utf8_lossy(&result.stderr);
-            println!("   ❌ Failed to register MCP server with Q CLI:");
-            println!("      Error: {}", stderr.trim());
-            println!(
-                "   📋 Manual setup: Run `q mcp add --name shelly --command {}`",
-                shelly_mcp_path.display()
-            );
+            let stdout = String::from_utf8_lossy(&result.stdout);
+            
+            println!("   ❌ Failed to register MCP server with Q CLI");
+            if !stderr.is_empty() {
+                println!("   📋 Error: {}", stderr.trim());
+            }
+            if !stdout.is_empty() {
+                println!("   📋 Output: {}", stdout.trim());
+            }
+            println!("   💡 Manual setup: q mcp add --name shelly --command {}", shelly_mcp_path.display());
+            println!("   💡 Check: q mcp list (to see registered servers)");
             Ok(())
         }
         Err(e) => {
-            println!("   ❌ Could not run 'q mcp add' command: {}", e);
-            println!(
-                "   📋 Manual setup: Run `q mcp add --name shelly --command {}`",
-                shelly_mcp_path.display()
-            );
+            println!("   ❌ Could not run 'q mcp add': {}", e);
+            println!("   💡 Ensure Q CLI is installed and in PATH");
+            println!("   💡 Manual setup: q mcp add --name shelly --command {}", shelly_mcp_path.display());
             Ok(())
         }
     }
