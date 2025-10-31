@@ -9,37 +9,35 @@ Create `.shelly/my-tool.ts`:
 ```typescript
 import type { HandlerFactory, Handler, PrepareResult, SummaryResult } from "./api.ts";
 
-export const myTool: HandlerFactory = {
-  matches(command: string): boolean {
-    return command.startsWith("my-tool ");
+export const myToolHandler: HandlerFactory = {
+  matches(cmd: string, args: string[]): boolean {
+    return cmd === "my-tool";
   },
 
-  create(command: string, settings: Record<string, any>): Handler {
-    return new MyToolHandler(command, settings);
+  create(cmd: string, args: string[], settings: Record<string, any>): Handler {
+    return new MyToolHandler(cmd, args, settings);
   },
 
   settings() {
     return {
-      type: "object",
-      properties: {
-        verbose: { type: "boolean", default: false }
-      }
+      verbose: { type: "boolean", default: false }
     };
   }
 };
 
 class MyToolHandler implements Handler {
   constructor(
-    private command: string,
+    private cmd: string,
+    private args: string[],
     private settings: Record<string, any>
   ) {}
 
   prepare(): PrepareResult {
-    let cmd = this.command;
+    let modifiedArgs = [...this.args];
     if (!this.settings.verbose) {
-      cmd += " --quiet";
+      modifiedArgs.push("--quiet");
     }
-    return { command: cmd, env: {} };
+    return { cmd: this.cmd, args: modifiedArgs, env: {} };
   }
 
   summarize(stdout: string, stderr: string, exitCode: number | null): SummaryResult {
@@ -67,9 +65,9 @@ class MyToolHandler implements Handler {
 ### Command Matching
 
 ```typescript
-matches(command: string): boolean {
-  return command.startsWith("git ");
-  // or: return /^docker (run|exec)/.test(command);
+matches(cmd: string, args: string[]): boolean {
+  return cmd === "git";
+  // or: return cmd === "docker" && (args[0] === "run" || args[0] === "exec");
 }
 ```
 
@@ -80,12 +78,9 @@ Define configurable options:
 ```typescript
 settings() {
   return {
-    type: "object",
-    properties: {
-      quiet: { type: "boolean", default: true },
-      timeout: { type: "number", default: 30 },
-      format: { type: "string", enum: ["json", "yaml"], default: "json" }
-    }
+    quiet: { type: "boolean", default: true },
+    timeout: { type: "number", default: 30 },
+    format: { type: "string", enum: ["json", "yaml"], default: "json" }
   };
 }
 ```
@@ -96,11 +91,11 @@ Modify commands before execution:
 
 ```typescript
 prepare(): PrepareResult {
-  let cmd = this.command;
+  let modifiedArgs = [...this.args];
   
   // Add flags
-  if (this.settings.quiet) {
-    cmd += " --quiet";
+  if (this.settings.quiet && !modifiedArgs.includes("--quiet")) {
+    modifiedArgs.push("--quiet");
   }
   
   // Set environment
@@ -109,7 +104,7 @@ prepare(): PrepareResult {
     env.DEBUG = "1";
   }
   
-  return { command: cmd, env };
+  return { cmd: this.cmd, args: modifiedArgs, env };
 }
 ```
 
@@ -163,14 +158,14 @@ summarize(stdout: string, stderr: string, exitCode: number | null): SummaryResul
 
 ```typescript
 prepare(): PrepareResult {
-  let cmd = this.command;
+  let modifiedArgs = [...this.args];
   
   // Add --json if not present
-  if (!cmd.includes('--json') && !cmd.includes('--format')) {
-    cmd += ' --json';
+  if (!modifiedArgs.includes('--json') && !modifiedArgs.includes('--format')) {
+    modifiedArgs.push('--json');
   }
   
-  return { command: cmd, env: {} };
+  return { cmd: this.cmd, args: modifiedArgs, env: {} };
 }
 ```
 
@@ -188,7 +183,7 @@ prepare(): PrepareResult {
     env.NO_COLOR = "1";
   }
   
-  return { command: this.command, env };
+  return { cmd: this.cmd, args: this.args, env };
 }
 ```
 
@@ -198,7 +193,8 @@ Create test files in `.shelly/tests/<handler>/`:
 
 ```toml
 # .shelly/tests/my-tool/success.toml
-command = "my-tool build"
+cmd = "my-tool"
+args = ["build"]
 settings = { verbose = false }
 
 [input]
@@ -235,6 +231,7 @@ User handlers override built-in ones with the same name.
 - Test with various command variations
 - Consider edge cases (empty output, non-zero exits)
 - Use settings for customization rather than hardcoding behavior
+- Command and arguments are separated for better parsing and manipulation
 
 ## API Reference
 

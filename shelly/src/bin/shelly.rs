@@ -60,8 +60,14 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Execute { command, exact, working_dir } => {
+            // Parse command into cmd and args
+            let parts: Vec<&str> = command.split_whitespace().collect();
+            let cmd = parts.first().unwrap_or(&"").to_string();
+            let args = parts.iter().skip(1).map(|s| s.to_string()).collect();
+            
             let request = shelly::ExecuteRequest {
-                command,
+                cmd,
+                args,
                 settings: HashMap::new(),
                 exact,
                 working_dir: working_dir.unwrap_or_else(|| std::env::current_dir().unwrap()),

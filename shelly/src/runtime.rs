@@ -81,7 +81,8 @@ impl ModuleLoader for TsModuleLoader {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrepareResult {
-    pub command: String,
+    pub cmd: String,
+    pub args: Vec<String>,
     pub env: HashMap<String, String>,
 }
 
@@ -104,11 +105,13 @@ enum RuntimeRequest {
         response: oneshot::Sender<Result<()>>,
     },
     Matches {
-        command: String,
+        cmd: String,
+        args: Vec<String>,
         response: oneshot::Sender<Result<bool>>,
     },
     CreateHandler {
-        command: String,
+        cmd: String,
+        args: Vec<String>,
         settings: HashMap<String, serde_json::Value>,
         response: oneshot::Sender<Result<()>>,
     },
@@ -187,8 +190,11 @@ impl HandlerRuntimeInner {
         Ok(())
     }
 
-    fn matches(&mut self, command: &str) -> Result<bool> {
-        let code = format!("handler.matches({})", serde_json::to_string(command)?);
+    fn matches(&mut self, cmd: &str, args: &[String]) -> Result<bool> {
+        let code = format!("handler.matches({}, {})", 
+            serde_json::to_string(cmd)?,
+            serde_json::to_string(args)?
+        );
         let result = self.js_runtime.execute_script("<matches>", code)?;
         let scope = &mut self.js_runtime.handle_scope();
         let local = deno_core::v8::Local::new(scope, result);
@@ -197,12 +203,14 @@ impl HandlerRuntimeInner {
 
     fn create_handler(
         &mut self,
-        command: &str,
+        cmd: &str,
+        args: &[String],
         settings: &HashMap<String, serde_json::Value>,
     ) -> Result<()> {
         let code = format!(
-            "globalThis.__handler = handler.create({}, {})",
-            serde_json::to_string(command)?,
+            "globalThis.__handler = handler.create({}, {}, {})",
+            serde_json::to_string(cmd)?,
+            serde_json::to_string(args)?,
             serde_json::to_string(settings)?
         );
         self.js_runtime.execute_script("<create>", code)?;
@@ -246,16 +254,17 @@ impl HandlerRuntimeInner {
                     let result = self.load_handler(&path).await;
                     let _ = response.send(result);
                 }
-                RuntimeRequest::Matches { command, response } => {
-                    let result = self.matches(&command);
+                RuntimeRequest::Matches { cmd, args, response } => {
+                    let result = self.matches(&cmd, &args);
                     let _ = response.send(result);
                 }
                 RuntimeRequest::CreateHandler {
-                    command,
+                    cmd,
+                    args,
                     settings,
                     response,
                 } => {
-                    let result = self.create_handler(&command, &settings);
+                    let result = self.create_handler(&cmd, &args, &settings);
                     let _ = response.send(result);
                 }
                 RuntimeRequest::Prepare { response } => {
@@ -317,10 +326,11 @@ impl HandlerRuntime {
         rx.await?
     }
 
-    pub async fn matches(&mut self, command: &str) -> Result<bool> {
+    pub async fn matches(&mut self, cmd: &str, args: &[String]) -> Result<bool> {
         let (tx, rx) = oneshot::channel();
         self.tx.send(RuntimeRequest::Matches {
-            command: command.to_string(),
+            cmd: cmd.to_string(),
+            args: args.to_vec(),
             response: tx,
         })?;
         rx.await?
@@ -328,12 +338,14 @@ impl HandlerRuntime {
 
     pub async fn create_handler(
         &mut self,
-        command: &str,
+        cmd: &str,
+        args: &[String],
         settings: &HashMap<String, serde_json::Value>,
     ) -> Result<()> {
         let (tx, rx) = oneshot::channel();
         self.tx.send(RuntimeRequest::CreateHandler {
-            command: command.to_string(),
+            cmd: cmd.to_string(),
+            args: args.to_vec(),
             settings: settings.clone(),
             response: tx,
         })?;

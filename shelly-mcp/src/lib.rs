@@ -82,20 +82,9 @@ impl ShellyMcp {
     ) -> Result<CallToolResult, ErrorData> {
         let params = params.0;
 
-        // Combine command and args with proper shell escaping
-        let full_command = if params.args.is_empty() {
-            params.command
-        } else {
-            let escaped_args: Vec<String> = params
-                .args
-                .iter()
-                .map(|arg| shell_escape::escape(arg.into()).to_string())
-                .collect();
-            format!("{} {}", params.command, escaped_args.join(" "))
-        };
-
         let request = shelly::ExecuteRequest {
-            command: full_command,
+            cmd: params.command,
+            args: params.args,
             settings: HashMap::new(),
             exact: params.disable_enhancements,
             working_dir: params.working_dir.into(),

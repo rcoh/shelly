@@ -1,13 +1,15 @@
 import type { HandlerFactory, Handler, PrepareResult, SummaryResult, SettingsSchema } from "./api.ts";
 
 class CargoHandler implements Handler {
-  private command: string;
+  private cmd: string;
+  private args: string[];
   private settings: Record<string, any>;
   private stdout = "";
   private stderr = "";
 
-  constructor(command: string, settings: Record<string, any>) {
-    this.command = command;
+  constructor(cmd: string, args: string[], settings: Record<string, any>) {
+    this.cmd = cmd;
+    this.args = args;
     this.settings = settings;
   }
 
@@ -15,11 +17,11 @@ class CargoHandler implements Handler {
     const quiet = this.settings.quiet ?? true;
     const rustLog = this.settings.RUST_LOG ?? null;
 
-    let modifiedCommand = this.command;
+    let modifiedArgs = [...this.args];
     
     // Add --quiet flag if enabled and not already present
-    if (quiet && !this.command.includes("--quiet")) {
-      modifiedCommand = this.command.replace(/^cargo\s+/, "cargo --quiet ");
+    if (quiet && !modifiedArgs.includes("--quiet")) {
+      modifiedArgs.unshift("--quiet");
     }
 
     const env: Record<string, string> = {};
@@ -27,7 +29,7 @@ class CargoHandler implements Handler {
       env.RUST_LOG = rustLog;
     }
 
-    return { command: modifiedCommand, env };
+    return { cmd: this.cmd, args: modifiedArgs, env };
   }
 
   summarize(stdoutChunk: string, stderrChunk: string, exitCode: number | null): SummaryResult {
@@ -119,12 +121,12 @@ class CargoHandler implements Handler {
 }
 
 export const cargoHandler: HandlerFactory = {
-  matches(command: string): boolean {
-    return command.trim().startsWith("cargo ");
+  matches(cmd: string, args: string[]): boolean {
+    return cmd === "cargo";
   },
 
-  create(command: string, settings: Record<string, any>): Handler {
-    return new CargoHandler(command, settings);
+  create(cmd: string, args: string[], settings: Record<string, any>): Handler {
+    return new CargoHandler(cmd, args, settings);
   },
 
   settings(): SettingsSchema {

@@ -9,19 +9,21 @@ export interface HandlerFactory {
   /**
    * Check if this handler should process the given command.
    * 
-   * @param command - The full command string (e.g., "cargo build --release")
+   * @param cmd - The command name (e.g., "cargo")
+   * @param args - The command arguments (e.g., ["build", "--release"])
    * @returns true if this handler should process the command
    */
-  matches(command: string): boolean;
+  matches(cmd: string, args: string[]): boolean;
 
   /**
    * Create a new handler instance for a command execution.
    * 
-   * @param command - The original command
+   * @param cmd - The command name
+   * @param args - The command arguments
    * @param settings - User-provided settings for this handler
    * @returns A new handler instance
    */
-  create(command: string, settings: Record<string, any>): Handler;
+  create(cmd: string, args: string[], settings: Record<string, any>): Handler;
 
   /**
    * Describe the settings this handler accepts.
@@ -54,8 +56,10 @@ export interface Handler {
 }
 
 export interface PrepareResult {
-  /** The command to execute (may be modified from original) */
-  command: string;
+  /** The command to execute */
+  cmd: string;
+  /** The command arguments */
+  args: string[];
   /** Environment variables to set */
   env: Record<string, string>;
 }

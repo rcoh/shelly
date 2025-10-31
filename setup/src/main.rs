@@ -106,36 +106,147 @@ fn create_test_handler() -> anyhow::Result<()> {
         dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
     let shelly_dir = home_dir.join(".shelly");
 
-    // Create types.ts file
-    let types_content = r#"export interface Handler {
-  name: string;
-  prepare(request: any): any;
-  filter(output: string): string;
+    // Create api.ts file
+    let api_content = r#"/**
+ * Shelly Handler API
+ * 
+ * Handlers process commands before execution and summarize output after.
+ * Handlers are stateful - create a new instance for each command execution.
+ */
+
+export interface HandlerFactory {
+  /**
+   * Check if this handler should process the given command.
+   * 
+   * @param cmd - The command name (e.g., "cargo")
+   * @param args - The command arguments (e.g., ["build", "--release"])
+   * @returns true if this handler should process the command
+   */
+  matches(cmd: string, args: string[]): boolean;
+
+  /**
+   * Create a new handler instance for a command execution.
+   * 
+   * @param cmd - The command name
+   * @param args - The command arguments
+   * @param settings - User-provided settings for this handler
+   * @returns A new handler instance
+   */
+  create(cmd: string, args: string[], settings: Record<string, any>): Handler;
+
+  /**
+   * Describe the settings this handler accepts.
+   * Used for documentation and validation.
+   */
+  settings(): SettingsSchema;
+}
+
+export interface Handler {
+  /**
+   * Prepare the command for execution.
+   * Can modify the command and set environment variables.
+   * 
+   * Note: This is skipped when exact: true is set.
+   * 
+   * @returns Modified command and environment variables
+   */
+  prepare(): PrepareResult;
+
+  /**
+   * Process incremental output chunks.
+   * Called repeatedly as output arrives, and once more when complete.
+   * 
+   * @param stdoutChunk - New stdout data (may be empty)
+   * @param stderrChunk - New stderr data (may be empty)
+   * @param exitCode - Exit code if complete, null if still running
+   * @returns Summary to emit, or null to keep buffering
+   */
+  summarize(stdoutChunk: string, stderrChunk: string, exitCode: number | null): SummaryResult;
+}
+
+export interface PrepareResult {
+  /** The command to execute */
+  cmd: string;
+  /** The command arguments */
+  args: string[];
+  /** Environment variables to set */
+  env: Record<string, string>;
+}
+
+export interface SummaryResult {
+  /** 
+   * Summary text to emit to the agent.
+   * Return null to keep buffering (waiting for more output).
+   */
+  summary: string | null;
+  
+  /**
+   * Optional truncation metadata to help agents understand what was filtered.
+   */
+  truncation?: TruncationInfo;
+}
+
+export interface TruncationInfo {
+  /** Whether content was truncated/filtered */
+  truncated: boolean;
+  /** Reason for truncation */
+  reason?: "filtered_noise" | "content_too_large" | "filtered_duplicates";
+  /** Human-readable description of what was removed */
+  description?: string;
+}
+
+export interface SettingsSchema {
+  [key: string]: SettingDefinition;
+}
+
+export interface SettingDefinition {
+  type: "boolean" | "string" | "number";
+  default: any;
+  description: string;
 }
 "#;
 
-    std::fs::write(shelly_dir.join("types.ts"), types_content)?;
+    std::fs::write(shelly_dir.join("api.ts"), api_content)?;
 
     // Create shelly-test.ts handler
-    let handler_content = r#"import { Handler } from './types';
+    let handler_content = r#"import type { HandlerFactory, Handler, PrepareResult, SummaryResult } from "./api.ts";
 
-export const handler: Handler = {
-  name: 'shelly-test',
-  
-  prepare(request) {
+class ShellyTestHandler implements Handler {
+  constructor(
+    private cmd: string,
+    private args: string[],
+    private settings: Record<string, any>
+  ) {}
+
+  prepare(): PrepareResult {
     // Replace shelly-test command with echo
-    if (request.command === 'shelly-test') {
-      return {
-        ...request,
-        command: 'echo "Shelly is ~NOT~ working!"'
-      };
-    }
-    return request;
+    return {
+      cmd: "echo",
+      args: ["Shelly", "is", "~NOT~", "working!"],
+      env: {}
+    };
+  }
+
+  summarize(stdout: string, stderr: string, exitCode: number | null): SummaryResult {
+    if (exitCode === null) return { summary: null };
+    
+    // Strip out ~NOT~ to show filtering works
+    const filtered = stdout.replace(/~NOT~/g, '');
+    return { summary: filtered.trim() };
+  }
+}
+
+export const shellyTestHandler: HandlerFactory = {
+  matches(cmd: string, args: string[]): boolean {
+    return cmd === "shelly-test";
   },
 
-  filter(output) {
-    // Strip out ~NOT~ to show filtering works
-    return output.replace(/~NOT~/g, '');
+  create(cmd: string, args: string[], settings: Record<string, any>): Handler {
+    return new ShellyTestHandler(cmd, args, settings);
+  },
+
+  settings() {
+    return {};
   }
 };
 "#;

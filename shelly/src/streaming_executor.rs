@@ -11,7 +11,8 @@ use crate::process_manager::{ProcessId, ProcessManager};
 use crate::runtime::HandlerRuntime;
 
 pub struct StreamingExecutorConfig {
-    pub command: String,
+    pub cmd: String,
+    pub args: Vec<String>,
     pub env: HashMap<String, String>,
     pub working_dir: PathBuf,
     pub update_interval: Duration,
@@ -33,7 +34,14 @@ pub async fn spawn(
     process_manager: Arc<ProcessManager>,
 ) -> Result<ProcessId> {
     // Start process tracking
-    let process_id = process_manager.start_process(config.command.clone(), config.output_file.clone()).await;
+    let command_display = if config.args.is_empty() {
+        config.cmd.clone()
+    } else {
+        format!("{} {}", config.cmd, config.args.join(" "))
+    };
+    let process_id = process_manager
+        .start_process(command_display, config.output_file.clone())
+        .await;
 
     // Spawn the actual execution task
     let process_manager_clone = process_manager.clone();
@@ -59,12 +67,14 @@ async fn execute_streaming_internal(
 ) -> Result<()> {
     // Run the actual execution and handle any errors
     let result = execute_streaming_inner(&config, &process_manager, &process_id).await;
-    
+
     if let Err(e) = &result {
         // Any error should mark the process as failed
-        process_manager.fail_process(&process_id, e.to_string()).await;
+        process_manager
+            .fail_process(&process_id, e.to_string())
+            .await;
     }
-    
+
     result
 }
 
@@ -74,12 +84,8 @@ async fn execute_streaming_inner(
     process_manager: &ProcessManager,
     process_id: &ProcessId,
 ) -> Result<()> {
-    // Parse command into program and args
-    let parts = shell_words::split(&config.command).context("Failed to parse command")?;
-    let (program, args) = parts.split_first().context("Empty command")?;
-
-    let mut cmd = Command::new(program);
-    cmd.args(args)
+    let mut cmd = Command::new(&config.cmd);
+    cmd.args(&config.args)
         .current_dir(&config.working_dir)
         .env_remove("RUST_LOG")
         .envs(&config.env)
@@ -130,7 +136,9 @@ async fn execute_streaming_inner(
 
     // Final handler call with exit code
     if let Some(ref handler) = handler {
-        process_manager.final_process_summary(process_id, exit_code, handler).await;
+        process_manager
+            .final_process_summary(process_id, exit_code, handler)
+            .await;
     }
 
     process_manager
@@ -149,9 +157,10 @@ mod tests {
     async fn test_nonexistent_command_fails_properly() {
         let process_manager = Arc::new(ProcessManager::new());
         let temp_dir = tempdir().unwrap();
-        
+
         let config = StreamingExecutorConfig {
-            command: "nonexistent-command-that-should-not-exist".to_string(),
+            cmd: "nonexistent-command-that-should-not-exist".to_string(),
+            args: vec![],
             env: HashMap::new(),
             working_dir: env::current_dir().unwrap(),
             update_interval: Duration::from_millis(100),
@@ -160,12 +169,15 @@ mod tests {
         };
 
         let process_id = spawn(config, process_manager.clone()).await.unwrap();
-        
+
         // Wait a bit for the process to fail
         tokio::time::sleep(Duration::from_millis(500)).await;
-        
-        let status = process_manager.get_process_status(&process_id).await.unwrap();
-        
+
+        let status = process_manager
+            .get_process_status(&process_id)
+            .await
+            .unwrap();
+
         // The process should be in Failed state, not Running
         match status.state {
             crate::process_manager::ProcessState::Failed { .. } => {
@@ -179,9 +191,10 @@ mod tests {
     async fn test_invalid_working_directory_fails_properly() {
         let process_manager = Arc::new(ProcessManager::new());
         let temp_dir = tempdir().unwrap();
-        
+
         let config = StreamingExecutorConfig {
-            command: "echo hello".to_string(),
+            cmd: "echo".to_string(),
+            args: vec!["hello".into()],
             env: HashMap::new(),
             working_dir: PathBuf::from("/nonexistent/directory/that/should/not/exist"),
             update_interval: Duration::from_millis(100),
@@ -190,12 +203,15 @@ mod tests {
         };
 
         let process_id = spawn(config, process_manager.clone()).await.unwrap();
-        
+
         // Wait a bit for the process to fail
         tokio::time::sleep(Duration::from_millis(500)).await;
-        
-        let status = process_manager.get_process_status(&process_id).await.unwrap();
-        
+
+        let status = process_manager
+            .get_process_status(&process_id)
+            .await
+            .unwrap();
+
         // The process should be in Failed state, not Running
         match status.state {
             crate::process_manager::ProcessState::Failed { .. } => {

@@ -5,12 +5,30 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TestCase {
-    pub command: String,
+    #[serde(default)]
+    pub cmd: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>, // For backward compatibility
     pub settings: HashMap<String, serde_json::Value>,
     pub stdout: String,
     pub stderr: String,
     pub exit_code: i32,
     pub expected_summary: String,
+}
+
+impl TestCase {
+    /// Ensure cmd/args are properly set from command if needed
+    pub fn normalize(&mut self) {
+        if let Some(command) = &self.command {
+            if self.cmd.is_empty() {
+                let parts: Vec<&str> = command.split_whitespace().collect();
+                self.cmd = parts.first().unwrap_or(&"").to_string();
+                self.args = parts.iter().skip(1).map(|s| s.to_string()).collect();
+            }
+        }
+    }
 }
 
 /// Find all test cases for a handler
@@ -43,7 +61,8 @@ fn load_tests_from_dir(test_dir: &Path, tests: &mut Vec<(String, TestCase)>) -> 
 
         if path.is_file() && path.extension().is_some_and(|e| e == "toml") {
             let name = path.file_stem().unwrap().to_string_lossy().to_string();
-            let test: TestCase = toml::from_str(&std::fs::read_to_string(&path)?)?;
+            let mut test: TestCase = toml::from_str(&std::fs::read_to_string(&path)?)?;
+            test.normalize(); // Handle backward compatibility
             tests.push((name, test));
         }
     }
@@ -55,7 +74,7 @@ pub async fn run_test(handler_path: &Path, name: &str, test: &TestCase) -> Resul
     let mut rt = crate::runtime::HandlerRuntime::new()?;
     rt.load_handler(handler_path.to_str().unwrap()).await?;
 
-    rt.create_handler(&test.command, &test.settings).await?;
+    rt.create_handler(&test.cmd, &test.args, &test.settings).await?;
     rt.prepare().await?;
 
     let result = rt
@@ -95,7 +114,7 @@ pub async fn update_snapshot(
     let mut rt = crate::runtime::HandlerRuntime::new()?;
     rt.load_handler(handler_path.to_str().unwrap()).await?;
 
-    rt.create_handler(&test.command, &test.settings).await?;
+    rt.create_handler(&test.cmd, &test.args, &test.settings).await?;
     rt.prepare().await?;
 
     let result = rt
