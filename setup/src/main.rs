@@ -3,6 +3,8 @@ async fn main() -> anyhow::Result<()> {
     setup_shelly().await
 }
 
+use std::io::BufRead;
+
 async fn setup_shelly() -> anyhow::Result<()> {
     println!("🔧 Setting up Shelly...");
 
@@ -348,6 +350,136 @@ fn configure_q_cli_mcp() -> anyhow::Result<()> {
         );
     }
 
+    // Get available agents
+    let agents = get_available_agents()?;
+    
+    if agents.is_empty() {
+        println!("   📋 No agents found");
+        return Ok(());
+    }
+
+    println!("   📋 Available agents:");
+    for (i, agent) in agents.iter().enumerate() {
+        println!("   {}. {}", i + 1, agent);
+    }
+    
+    println!();
+    println!("Which agents should include Shelly?");
+    println!("Enter numbers (e.g., '1,3' or '1-3' or 'all' or 'none'): ");
+    
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    let input = input.trim();
+    
+    if input == "none" {
+        println!("   ⏭️  Skipping agent configuration");
+        return Ok(());
+    }
+    
+    let selected = if input == "all" {
+        (0..agents.len()).collect()
+    } else {
+        parse_selection(input, agents.len())?
+    };
+    
+    for &idx in &selected {
+        let agent_name = &agents[idx];
+        add_shelly_to_agent(agent_name, &shelly_mcp_path)?;
+    }
+    
+    Ok(())
+}
+
+fn get_available_agents() -> anyhow::Result<Vec<String>> {
+    let output = std::process::Command::new("q")
+        .args(["agent", "list"])
+        .output()
+        .map_err(|e| anyhow::anyhow!("❌ Failed to run 'q agent list': {}", e))?;
+        
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+    
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let agents: Vec<String> = stderr
+        .lines()
+        .filter_map(|line| {
+            // Strip ANSI color codes
+            let clean_line = strip_ansi_codes(line).trim().to_string();
+            if clean_line.starts_with("Error:") || clean_line.is_empty() {
+                return None;
+            }
+            let parts: Vec<&str> = clean_line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                Some(parts[0].to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+        
+    Ok(agents)
+}
+
+fn strip_ansi_codes(input: &str) -> String {
+    let mut result = String::new();
+    let mut chars = input.chars();
+    
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            // Skip escape sequence
+            if chars.next() == Some('[') {
+                while let Some(c) = chars.next() {
+                    if c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    
+    result
+}
+
+fn parse_selection(input: &str, max: usize) -> anyhow::Result<Vec<usize>> {
+    let mut selected = Vec::new();
+    
+    for part in input.split(',') {
+        let part = part.trim();
+        if part.contains('-') {
+            let range: Vec<&str> = part.split('-').collect();
+            if range.len() != 2 {
+                anyhow::bail!("❌ Invalid range format: {}", part);
+            }
+            let start: usize = range[0].parse().map_err(|_| anyhow::anyhow!("❌ Invalid number: {}", range[0]))?;
+            let end: usize = range[1].parse().map_err(|_| anyhow::anyhow!("❌ Invalid number: {}", range[1]))?;
+            
+            if start == 0 || end == 0 || start > max || end > max {
+                anyhow::bail!("❌ Numbers must be between 1 and {}", max);
+            }
+            
+            for i in start..=end {
+                selected.push(i - 1);
+            }
+        } else {
+            let num: usize = part.parse().map_err(|_| anyhow::anyhow!("❌ Invalid number: {}", part))?;
+            if num == 0 || num > max {
+                anyhow::bail!("❌ Number must be between 1 and {}", max);
+            }
+            selected.push(num - 1);
+        }
+    }
+    
+    selected.sort_unstable();
+    selected.dedup();
+    Ok(selected)
+}
+
+fn add_shelly_to_agent(agent_name: &str, shelly_mcp_path: &std::path::Path) -> anyhow::Result<()> {
+    println!("   🔧 Adding Shelly to agent '{}'...", agent_name);
+    
     let output = std::process::Command::new("q")
         .args([
             "mcp",
@@ -356,34 +488,24 @@ fn configure_q_cli_mcp() -> anyhow::Result<()> {
             "shelly",
             "--command",
             &shelly_mcp_path.to_string_lossy(),
+            "--agent",
+            agent_name,
             "--force",
         ])
         .output();
 
     match output {
         Ok(result) if result.status.success() => {
-            println!("   ✅ MCP server 'shelly' registered successfully with Q CLI!");
+            println!("   ✅ Added to agent '{}'", agent_name);
             Ok(())
         }
         Ok(result) => {
             let stderr = String::from_utf8_lossy(&result.stderr);
-            let stdout = String::from_utf8_lossy(&result.stdout);
-            
-            println!("   ❌ Failed to register MCP server with Q CLI");
-            if !stderr.is_empty() {
-                println!("   📋 Error: {}", stderr.trim());
-            }
-            if !stdout.is_empty() {
-                println!("   📋 Output: {}", stdout.trim());
-            }
-            println!("   💡 Manual setup: q mcp add --name shelly --command {}", shelly_mcp_path.display());
-            println!("   💡 Check: q mcp list (to see registered servers)");
+            println!("   ❌ Failed to add to agent '{}': {}", agent_name, stderr.trim());
             Ok(())
         }
         Err(e) => {
-            println!("   ❌ Could not run 'q mcp add': {}", e);
-            println!("   💡 Ensure Q CLI is installed and in PATH");
-            println!("   💡 Manual setup: q mcp add --name shelly --command {}", shelly_mcp_path.display());
+            println!("   ❌ Error adding to agent '{}': {}", agent_name, e);
             Ok(())
         }
     }
