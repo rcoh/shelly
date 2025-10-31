@@ -15,11 +15,17 @@ async fn setup_shelly() -> anyhow::Result<()> {
     // 3. Create .shelly directory structure
     create_shelly_directory()?;
 
-    // 4. Configure Q CLI MCP integration
+    // 4. Create test handler
+    create_test_handler()?;
+
+    // 5. Configure Q CLI MCP integration
     configure_q_cli_mcp()?;
 
     println!("✅ Shelly setup complete!");
     println!("You can now use Shelly with Q CLI by running commands through the execute_cli tool.");
+    println!();
+    println!("🧪 Test your setup with:");
+    println!("   q chat --non-interactive \"Run \\`shelly-test\\` with shelly\"");
 
     Ok(())
 }
@@ -90,6 +96,52 @@ fn create_shelly_directory() -> anyhow::Result<()> {
     std::fs::create_dir_all(shelly_dir.join("tests"))?;
 
     println!("   Created directory: {}", shelly_dir.display());
+    Ok(())
+}
+
+fn create_test_handler() -> anyhow::Result<()> {
+    println!("🧪 Creating test handler...");
+
+    let home_dir =
+        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
+    let shelly_dir = home_dir.join(".shelly");
+
+    // Create types.ts file
+    let types_content = r#"export interface Handler {
+  name: string;
+  prepare(request: any): any;
+  filter(output: string): string;
+}
+"#;
+
+    std::fs::write(shelly_dir.join("types.ts"), types_content)?;
+
+    // Create shelly-test.ts handler
+    let handler_content = r#"import { Handler } from './types';
+
+export const handler: Handler = {
+  name: 'shelly-test',
+  
+  prepare(request) {
+    // Replace shelly-test command with echo
+    if (request.command === 'shelly-test') {
+      return {
+        ...request,
+        command: 'echo "Shelly is ~NOT~ working!"'
+      };
+    }
+    return request;
+  },
+
+  filter(output) {
+    // Strip out ~NOT~ to show filtering works
+    return output.replace(/~NOT~/g, '');
+  }
+};
+"#;
+
+    std::fs::write(shelly_dir.join("shelly-test.ts"), handler_content)?;
+    println!("   Created shelly-test handler");
     Ok(())
 }
 

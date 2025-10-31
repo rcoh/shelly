@@ -136,6 +136,8 @@ cargo test
 ./shelly-dev.sh
 ```
 
+**Important**: When developing with Q CLI, code changes to Shelly require restarting the entire Q CLI session. The MCP server is loaded once at startup and doesn't reload automatically.
+
 ## Use Cases
 
 - **AI Code Assistants**: Filter compiler output to show only relevant errors

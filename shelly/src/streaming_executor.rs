@@ -57,6 +57,23 @@ async fn execute_streaming_internal(
     process_manager: Arc<ProcessManager>,
     process_id: ProcessId,
 ) -> Result<()> {
+    // Run the actual execution and handle any errors
+    let result = execute_streaming_inner(&config, &process_manager, &process_id).await;
+    
+    if let Err(e) = &result {
+        // Any error should mark the process as failed
+        process_manager.fail_process(&process_id, e.to_string()).await;
+    }
+    
+    result
+}
+
+/// Inner execution that can fail at any point
+async fn execute_streaming_inner(
+    config: &StreamingExecutorConfig,
+    process_manager: &ProcessManager,
+    process_id: &ProcessId,
+) -> Result<()> {
     // Parse command into program and args
     let parts = shell_words::split(&config.command).context("Failed to parse command")?;
     let (program, args) = parts.split_first().context("Empty command")?;
@@ -77,7 +94,7 @@ async fn execute_streaming_internal(
     let mut stdout_reader = BufReader::new(stdout).lines();
     let mut stderr_reader = BufReader::new(stderr).lines();
 
-    let handler = config.handler;
+    let handler = &config.handler;
 
     // Read output line by line with periodic updates
     loop {
@@ -86,10 +103,10 @@ async fn execute_streaming_internal(
                 match line? {
                     Some(l) => {
                             process_manager.update_process_output(
-                                &process_id,
+                                process_id,
                                 format!("{}\n", l),
                                 String::new(),
-                                &handler,
+                                handler,
                             ).await;
                     }
                     None => break,
@@ -98,10 +115,10 @@ async fn execute_streaming_internal(
             line = stderr_reader.next_line() => {
                 if let Some(l) = line? {
                     process_manager.update_process_output(
-                        &process_id,
+                        process_id,
                         String::new(),
                         format!("{}\n", l),
-                        &handler,
+                        handler,
                     ).await;
                 }
             }
@@ -113,64 +130,78 @@ async fn execute_streaming_internal(
 
     // Final handler call with exit code
     if let Some(ref handler) = handler {
-        process_manager.final_process_summary(&process_id, exit_code, &handler).await;
+        process_manager.final_process_summary(process_id, exit_code, handler).await;
     }
 
     process_manager
-        .complete_process(&process_id, exit_code)
+        .complete_process(process_id, exit_code)
         .await;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    //use super::*;
-    //use std::env;
+    use super::*;
+    use std::env;
+    use tempfile::tempdir;
 
-    /*
     #[tokio::test]
-    async fn test_streaming_execution() {
+    async fn test_nonexistent_command_fails_properly() {
         let process_manager = Arc::new(ProcessManager::new());
+        let temp_dir = tempdir().unwrap();
+        
+        let config = StreamingExecutorConfig {
+            command: "nonexistent-command-that-should-not-exist".to_string(),
+            env: HashMap::new(),
+            working_dir: env::current_dir().unwrap(),
+            update_interval: Duration::from_millis(100),
+            handler: None,
+            output_file: temp_dir.path().join("output.txt"),
+        };
 
+        let process_id = spawn(config, process_manager.clone()).await.unwrap();
+        
+        // Wait a bit for the process to fail
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        
+        let status = process_manager.get_process_status(&process_id).await.unwrap();
+        
+        // The process should be in Failed state, not Running
+        match status.state {
+            crate::process_manager::ProcessState::Failed { .. } => {
+                // This is what we expect
+            }
+            other => panic!("Expected Failed state, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_invalid_working_directory_fails_properly() {
+        let process_manager = Arc::new(ProcessManager::new());
+        let temp_dir = tempdir().unwrap();
+        
         let config = StreamingExecutorConfig {
             command: "echo hello".to_string(),
             env: HashMap::new(),
-            working_dir: env::current_dir().unwrap(),
+            working_dir: PathBuf::from("/nonexistent/directory/that/should/not/exist"),
             update_interval: Duration::from_millis(100),
             handler: None,
+            output_file: temp_dir.path().join("output.txt"),
         };
 
-        let result = execute_with_timeout(config, process_manager, Duration::from_secs(5))
-            .await
-            .unwrap();
-
-        assert_eq!(result.exit_code, 0);
-        assert!(result.stdout.contains("hello"));
-        assert!(result.completed);
+        let process_id = spawn(config, process_manager.clone()).await.unwrap();
+        
+        // Wait a bit for the process to fail
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        
+        let status = process_manager.get_process_status(&process_id).await.unwrap();
+        
+        // The process should be in Failed state, not Running
+        match status.state {
+            crate::process_manager::ProcessState::Failed { .. } => {
+                // This is what we expect
+            }
+            other => panic!("Expected Failed state, got: {:?}", other),
+        }
     }
-
-    #[tokio::test]
-    async fn test_long_running_command() {
-        let process_manager = Arc::new(ProcessManager::new());
-
-        let config = StreamingExecutorConfig {
-            command: "sleep 1 && echo done".to_string(),
-            env: HashMap::new(),
-            working_dir: env::current_dir().unwrap(),
-            update_interval: Duration::from_millis(100),
-            handler: None,
-        };
-
-        let result = execute_with_timeout(config, process_manager.clone(), Duration::from_secs(5))
-            .await
-            .unwrap();
-
-        assert_eq!(result.exit_code, 0);
-        assert!(result.stdout.contains("done"));
-
-        // Check that process was tracked
-        let status = process_manager.get_process_status(&result.process_id).await;
-        assert!(status.is_some());
-    }
-    */
 }

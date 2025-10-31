@@ -203,6 +203,14 @@ impl ProcessManager {
         let _ = task.complete_tx.send(true);
     }
 
+    pub async fn fail_process(&self, process_id: &ProcessId, error: String) {
+        let mut processes = self.processes.write().await;
+        if let Some(task) = processes.get_mut(process_id) {
+            task.info.state = ProcessState::Failed { error };
+            let _ = task.complete_tx.send(true);
+        }
+    }
+
     pub async fn cancel_process(&self, process_id: &ProcessId) -> bool {
         let mut processes = self.processes.write().await;
         if let Some(task) = processes.get_mut(process_id) {
