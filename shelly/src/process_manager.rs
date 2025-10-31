@@ -8,8 +8,8 @@ use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use uuid::Uuid;
 
-use crate::runtime::{process, HandlerRuntime};
 use crate::output;
+use crate::runtime::{process, HandlerRuntime};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub struct ProcessId(pub String);
@@ -50,7 +50,7 @@ pub struct ProcessStatus {
     pub output_file: Option<PathBuf>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct ProcessUpdate {
     pub incremental_summary: String,
     pub status: ProcessState,
@@ -172,14 +172,17 @@ impl ProcessManager {
     ) {
         let mut processes = self.processes.write().await;
         let task = processes.get_mut(process_id).unwrap();
-        
+
         // Call handler with final exit code
-        let summary = handler.summarize(
-            &task.info.raw_stdout,
-            &task.info.raw_stderr,
-            Some(exit_code),
-        ).await.unwrap();
-        
+        let summary = handler
+            .summarize(
+                &task.info.raw_stdout,
+                &task.info.raw_stderr,
+                Some(exit_code),
+            )
+            .await
+            .unwrap();
+
         if let Some(final_summary) = summary.summary {
             task.delta_summary = final_summary;
         }
@@ -189,7 +192,7 @@ impl ProcessManager {
         let mut processes = self.processes.write().await;
         let task = processes.get_mut(process_id).unwrap();
         task.info.state = ProcessState::Completed { exit_code };
-        
+
         // Write output to file if path is set
         if let Some(output_file) = &task.info.output_file {
             let _ = output::write_output(
@@ -199,7 +202,7 @@ impl ProcessManager {
                 exit_code,
             );
         }
-        
+
         let _ = task.complete_tx.send(true);
     }
 
@@ -228,7 +231,10 @@ impl ProcessManager {
         processes.get(process_id).map(|task| task.info.clone())
     }
 
-    pub async fn get_process_status_summary(&self, process_id: &ProcessId) -> Option<ProcessStatus> {
+    pub async fn get_process_status_summary(
+        &self,
+        process_id: &ProcessId,
+    ) -> Option<ProcessStatus> {
         let processes = self.processes.read().await;
         processes.get(process_id).map(|task| {
             let info = &task.info;

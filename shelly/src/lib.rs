@@ -72,7 +72,12 @@ pub async fn execute_command_streaming(
 
     // Find and load handler (if not exact mode)
     let (final_cmd, final_args, handler_env, rt) = if exact {
-        (request.cmd.clone(), request.args.clone(), HashMap::new(), None)
+        (
+            request.cmd.clone(),
+            request.args.clone(),
+            HashMap::new(),
+            None,
+        )
     } else if let Some(handler_path) = handler::find_handler(&command)? {
         tracing::info!("found custom hanlder for {command} @ {handler_path:?}");
         let mut rt = runtime::HandlerRuntime::new()?;
@@ -80,16 +85,27 @@ pub async fn execute_command_streaming(
 
         if rt.matches(&request.cmd, &request.args).await? {
             tracing::info!("Found custom handler for {command}");
-            rt.create_handler(&request.cmd, &request.args, &settings).await?;
+            rt.create_handler(&request.cmd, &request.args, &settings)
+                .await?;
             let prep = rt.prepare().await?;
             tracing::info!("Command has changed command to be: {prep:?}");
             (prep.cmd, prep.args, prep.env, Some(rt))
         } else {
             tracing::info!("no custom handler for {command}");
-            (request.cmd.clone(), request.args.clone(), HashMap::new(), None)
+            (
+                request.cmd.clone(),
+                request.args.clone(),
+                HashMap::new(),
+                None,
+            )
         }
     } else {
-        (request.cmd.clone(), request.args.clone(), HashMap::new(), None)
+        (
+            request.cmd.clone(),
+            request.args.clone(),
+            HashMap::new(),
+            None,
+        )
     };
 
     // Merge env vars: start with agent's, then handler's (handler wins)
@@ -150,7 +166,28 @@ pub async fn execute_command_streaming(
             is_running: false,
             available_actions: vec![],
         },
-        _ => panic!("unepxected state"),
+        ProcessState::Failed { error } => ExecutionResult {
+            summary: format!("Command failed: {}", error),
+            output_file: output_file.to_string_lossy().to_string(),
+            exit_code: 127,
+            truncated: false,
+            truncation_reason: None,
+            executed_command,
+            process_id: Some(process_id),
+            is_running: false,
+            available_actions: vec![],
+        },
+        ProcessState::Cancelled => ExecutionResult {
+            summary: "Command was cancelled".to_string(),
+            output_file: output_file.to_string_lossy().to_string(),
+            exit_code: 130,
+            truncated: false,
+            truncation_reason: None,
+            executed_command,
+            process_id: Some(process_id),
+            is_running: false,
+            available_actions: vec![],
+        },
     })
 }
 
@@ -207,7 +244,9 @@ mod tests {
 
         // Create handler instance
         let settings = HashMap::new();
-        rt.create_handler("cargo", &["build".to_string()], &settings).await.unwrap();
+        rt.create_handler("cargo", &["build".to_string()], &settings)
+            .await
+            .unwrap();
 
         // Test prepare
         let prep = rt.prepare().await.unwrap();
@@ -220,7 +259,9 @@ mod tests {
         rt.load_handler("handlers/cargo.ts").await.unwrap();
 
         let settings = HashMap::new();
-        rt.create_handler("cargo", &["build".to_string()], &settings).await.unwrap();
+        rt.create_handler("cargo", &["build".to_string()], &settings)
+            .await
+            .unwrap();
         rt.prepare().await.unwrap();
 
         // Test incremental summarization
@@ -234,6 +275,22 @@ mod tests {
             .unwrap();
         assert!(result.summary.is_some());
         assert!(result.summary.unwrap().contains("error"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_command_error() {
+        let request = ExecuteRequest {
+            cmd: "ccccccargo".to_string(),
+            args: vec!["--version".to_string()],
+            settings: HashMap::new(),
+            exact: false,
+            working_dir: std::env::current_dir().unwrap(),
+            env: HashMap::new(),
+        };
+        let result = execute_command(request).await.unwrap();
+        assert_eq!(result.exit_code, 127);
+        assert!(!result.output_file.is_empty());
+        assert!(!result.summary.is_empty());
     }
 
     #[tokio::test]

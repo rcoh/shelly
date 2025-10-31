@@ -33,6 +33,11 @@ pub async fn spawn(
     config: StreamingExecutorConfig,
     process_manager: Arc<ProcessManager>,
 ) -> Result<ProcessId> {
+    tracing::debug!(
+        "spawning {cmd:?} {args:?}",
+        cmd = config.cmd,
+        args = config.args
+    );
     // Start process tracking
     let command_display = if config.args.is_empty() {
         config.cmd.clone()
@@ -54,8 +59,6 @@ pub async fn spawn(
     // Register the handle
     process_manager.register_handle(&process_id, handle).await;
 
-    // For now, let's wait for the handle directly since we have it
-    // TODO: Implement proper incremental updates later
     Ok(process_id)
 }
 
@@ -169,6 +172,9 @@ mod tests {
         };
 
         let process_id = spawn(config, process_manager.clone()).await.unwrap();
+        let resp = process_manager
+            .join_process(&process_id, Duration::from_millis(10))
+            .await;
 
         // Wait a bit for the process to fail
         tokio::time::sleep(Duration::from_millis(500)).await;
